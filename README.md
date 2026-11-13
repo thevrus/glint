@@ -45,6 +45,7 @@ If you use [Homebrew](https://brew.sh), this does all three steps, with no warni
 
 ```sh
 brew tap thevrus/glint https://github.com/thevrus/glint
+brew trust thevrus/glint
 brew install --cask glint
 ```
 

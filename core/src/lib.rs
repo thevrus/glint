@@ -20,20 +20,30 @@ const F_BACK: u16 = 0x8040;
 /// Back colour feature: id not yet identified, litra-rs documents index 0x0c on Beam LX.
 const IDX_BACK_COLOR: u8 = 0x0c;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("no Litra found")]
     NotFound,
-    #[error("hid: {0}")]
-    Hid(#[from] hidapi::HidError),
-    #[error("device rejected command (code {0:#04x})")]
+    Hid(hidapi::HidError),
     Rejected(u8),
-    #[error("no reply")]
     Timeout,
-    #[error("feature {0:#06x} not supported by this device")]
     Unsupported(u16),
-    #[error("value out of range: {0}")]
     Range(&'static str),
+}
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::NotFound => write!(f, "no Litra found"),
+            Error::Hid(e) => write!(f, "hid: {e}"),
+            Error::Rejected(c) => write!(f, "device rejected command (code {c:#04x})"),
+            Error::Timeout => write!(f, "no reply"),
+            Error::Unsupported(id) => write!(f, "feature {id:#06x} not supported by this device"),
+            Error::Range(what) => write!(f, "value out of range: {what}"),
+        }
+    }
+}
+impl std::error::Error for Error {}
+impl From<hidapi::HidError> for Error {
+    fn from(e: hidapi::HidError) -> Self { Error::Hid(e) }
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -124,6 +134,8 @@ impl Light {
     pub fn temperature(&self) -> Result<u16> { let r = self.call(self.front, 0x81, &[])?; Ok(u16::from_be_bytes([r[0], r[1]])) }
     pub fn set_temperature(&self, k: u16) -> Result<()> {
         if !(FRONT_TEMP.min..=FRONT_TEMP.max).contains(&k) { return Err(Error::Range("temperature 2700..6500 K")); }
+        // The firmware answers anything between with error 0x02.
+        if k % 100 != 0 { return Err(Error::Range("temperature in steps of 100 K")); }
         self.call(self.front, 0x9c, &k.to_be_bytes()).map(drop)
     }
 
@@ -136,13 +148,27 @@ impl Light {
         if !(1..=100).contains(&pct) { return Err(Error::Range("back brightness 1..100 %")); }
         self.call(self.back_idx()?, 0x2b, &[0, pct]).map(drop)
     }
-    /// Set one of the 7 back zones (1..=7, left to right). Each call needs a commit afterwards.
-    pub fn set_back_zone(&self, zone: u8, rgb: [u8; 3]) -> Result<()> {
-        if !(1..=7).contains(&zone) { return Err(Error::Range("zone 1..7")); }
+    /// Set any of the 7 back zones (1..=7, left to right) as one frame. A report carries up to
+    /// four zones and nothing shows until the commit, so all seven change together in three
+    /// round trips.
+    pub fn set_back_zones(&self, zones: &[(u8, [u8; 3])]) -> Result<()> {
+        if zones.iter().any(|(z, _)| !(1..=7).contains(z)) { return Err(Error::Range("zone 1..7")); }
         self.back_idx()?;
-        let c = rgb.map(|v| v.max(1));
-        self.call(IDX_BACK_COLOR, 0x1b, &[zone, c[0], c[1], c[2], 0xff, 0, 0, 0, 0xff, 0, 0, 0, 0xff, 0, 0, 0]).map(drop)?;
+        if zones.is_empty() { return Ok(()); }
+        for chunk in zones.chunks(4) {
+            // an unused slot is marked by zone 0xff
+            let mut args = [0xff, 0, 0, 0, 0xff, 0, 0, 0, 0xff, 0, 0, 0, 0xff, 0, 0, 0];
+            for (slot, (zone, rgb)) in chunk.iter().enumerate() {
+                let c = rgb.map(|v| v.max(1));
+                args[slot * 4..slot * 4 + 4].copy_from_slice(&[*zone, c[0], c[1], c[2]]);
+            }
+            self.call(IDX_BACK_COLOR, 0x1b, &args)?;
+        }
         self.call(IDX_BACK_COLOR, 0x7b, &[0, 0, 1, 0, 0]).map(drop)
     }
-    pub fn set_back_color(&self, rgb: [u8; 3]) -> Result<()> { for z in 1..=7 { self.set_back_zone(z, rgb)?; } Ok(()) }
+    pub fn set_back_zone(&self, zone: u8, rgb: [u8; 3]) -> Result<()> { self.set_back_zones(&[(zone, rgb)]) }
+    pub fn set_back_color(&self, rgb: [u8; 3]) -> Result<()> {
+        let all: Vec<(u8, [u8; 3])> = (1..=7).map(|z| (z, rgb)).collect();
+        self.set_back_zones(&all)
+    }
 }

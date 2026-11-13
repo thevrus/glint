@@ -6,7 +6,7 @@
   --sep: rgba(60, 60, 67, 0.16);
   --fill: rgba(120, 120, 128, 0.16);
   --fill2: rgba(120, 120, 128, 0.24);
-  --bg: #ececec;
+  --bg: #fff;
   --group: #fff;
   --accent: #007aff;
   --green: #248a3d;
@@ -14,15 +14,15 @@
   --knob-off: rgba(60, 60, 67, 0.55);
   --seg-on: #fff;
   --tile: #fff;
-  --sheet: rgba(246, 246, 246, 0.82);
+  --sheet: #fff;
   --edge: rgba(0, 0, 0, 0.1);
   --knob-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 2.5px rgba(0, 0, 0, 0.24);
   --r-lg: 20px;
   --r-md: 16px;
   --r-sm: 8px;
-  /* glass: a bright lip where light catches the top edge, a self-coloured rim, a tight contact shadow */
+  /* card edge: a hairline rim in the surface's own colour, a faint top lip, a tight contact shadow */
   --lip: rgba(255, 255, 255, 0.85);
-  --glass: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 1px 2px -1px rgba(0, 0, 0, 0.14);
+  --rim: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 1px 2px -1px rgba(0, 0, 0, 0.14);
   --thumb: 20px;
   --out: cubic-bezier(0.22, 0.8, 0.3, 1);
 }
@@ -33,15 +33,15 @@
     --sep: rgba(255, 255, 255, 0.1);
     --fill: rgba(120, 120, 128, 0.32);
     --fill2: rgba(120, 120, 128, 0.44);
-    --bg: #1e1e1e;
-    --group: #2c2c2e;
+    --bg: #0a0a0a;
+    --group: #161616;
     --accent: #0a84ff;
     --green: #30d158;
     --red: #ff6961;
     --knob-off: rgba(235, 235, 245, 0.38);
     --seg-on: #636366;
-    --tile: #3a3a3c;
-    --sheet: rgba(40, 40, 42, 0.8);
+    --tile: #161616;
+    --sheet: #161616;
     --edge: rgba(255, 255, 255, 0.1);
     --lip: rgba(255, 255, 255, 0.14);
   }
@@ -58,10 +58,8 @@
   :root { --accent-text: color-mix(in srgb, var(--accent) 74%, #000); }
   @media (prefers-color-scheme: dark) { :root { --accent-text: color-mix(in srgb, var(--accent) 72%, #fff); } }
 }
-/* macOS: the window is a system material, so surfaces become translucent. */
-.mac { --group: rgba(255, 255, 255, 0.5); --tile: rgba(255, 255, 255, 0.5); }
-@media (prefers-color-scheme: dark) { .mac { --group: rgba(255, 255, 255, 0.075); --tile: rgba(255, 255, 255, 0.1); } }
-.mac body { background: transparent; }
+/* One flat surface: white, or near-black in dark mode. Cards sit on it with a hairline edge
+   only, and the window has no blur behind it. */
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-drag: none; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
@@ -98,7 +96,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 /* simple view: the Home-style default. Advanced swaps it for the preview, tabs and panel. */
 .content.simple .adv-only, .content.simple > .hero-wrap, .content.simple > .segmented, .content.simple > .panel { display: none; }
 .content:not(.simple) .simple-only { display: none; }
-.content.simple header { position: relative; padding: 0 36px; text-align: center; }
+.content.simple header { position: relative; padding: 0 66px; text-align: center; }
 .content.simple .titlerow { justify-content: center; }
 .content.simple .hbtns { position: absolute; top: 1px; right: 0; }
 .content.simple .sub { font-variant-numeric: tabular-nums; }
@@ -106,6 +104,9 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .vslider { --p: 0; --tint: #8e8e93; position: relative; flex: 1; min-height: 0; max-height: 320px; width: 128px; border-radius: 40px; background: var(--fill2); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge); overflow: hidden; touch-action: none; transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
 /* while the pointer is down the slider is the pointer: no easing on the stretch */
 .vslider.drag { transition: none; }
+.vslider.dark:not(.off) .vs-glyph { color: rgba(255, 255, 255, 0.92); }
+.simple-view > .segmented { width: 176px; }
+.gear.power.on { color: var(--label); }
 /* the fill never drops below the glyph, so the bulb always sits on the light's own colour */
 .vs-fill { position: absolute; inset: 0; transform: translateY(calc((1 - var(--p)) * (100% - 76px))); background: var(--tint); transition: transform 0.25s var(--out), background-color 0.25s var(--out); }
 .vslider.drag .vs-fill { transition: background-color 0.25s var(--out); }
@@ -125,7 +126,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 
 /* grouped rows */
 .footer { margin: -4px 14px 0; font-size: 11px; line-height: 1.36; color: var(--label2); text-wrap: pretty; }
-.group { background: var(--group); border-radius: var(--r-md); box-shadow: var(--glass); overflow: hidden; }
+.group { background: var(--group); border-radius: var(--r-md); box-shadow: var(--rim); overflow: hidden; }
 .row { min-height: 44px; padding: 8px 14px; display: flex; align-items: center; gap: 12px; position: relative; }
 .group .row + .row::before,
 .sheet-body .group > div + div > .row:first-child::before,
@@ -215,7 +216,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 /* fields */
 .field { appearance: none; border: 0; background: var(--fill); border-radius: var(--r-sm); height: 28px; padding: 0 8px; text-align: right; width: 110px; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; cursor: text; }
 .field::placeholder { color: var(--label2); opacity: 0.7; }
-.field.time { width: 96px; }
+.field.time { width: auto; }
 .field.wide { width: 100%; text-align: left; height: 30px; }
 .field.hex { flex: 1; min-width: 0; width: auto; text-align: left; text-transform: lowercase; }
 .select { appearance: none; -webkit-appearance: none; border: 0; background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5.5 5 2.5 8 5.5M2 8.5l3 3 3-3'/%3E%3C/svg%3E") no-repeat right 7px center; border-radius: var(--r-sm); height: 28px; padding: 0 24px 0 9px; }
@@ -236,7 +237,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 /* preset strip: scrolls sideways and fades out at both window edges */
 .strip { flex: none; display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding: 0 16px; margin: -2px -16px; padding: 2px 16px; -webkit-mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 28px), transparent); }
 .strip::-webkit-scrollbar { display: none; }
-.tile { appearance: none; border: 0; flex: none; width: 104px; height: 64px; padding: 9px 10px; border-radius: var(--r-md); background: var(--tile); box-shadow: var(--glass); text-align: left; display: flex; flex-direction: column; justify-content: space-between; scroll-snap-align: start; transition: background-color 0.2s var(--out), color 0.2s var(--out), transform 0.1s ease-out; }
+.tile { appearance: none; border: 0; flex: none; width: 104px; height: 64px; padding: 9px 10px; border-radius: var(--r-md); background: var(--tile); box-shadow: var(--rim); text-align: left; display: flex; flex-direction: column; justify-content: space-between; scroll-snap-align: start; transition: background-color 0.2s var(--out), color 0.2s var(--out), transform 0.1s ease-out; }
 .tile .name { width: 100%; font-weight: 500; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile:active { background: var(--fill2); transform: scale(0.97); transition-duration: 0s, 0s, 0.1s; }
 .tile.active { background: var(--accent-fill); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
@@ -245,7 +246,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .tile:focus-visible { outline-offset: -3px; }
 
 /* sheets */
-.sheet { border: 0; padding: 18px; border-radius: var(--r-lg); width: min(300px, calc(100vw - 32px)); background: var(--sheet); -webkit-backdrop-filter: blur(40px) saturate(1.8); backdrop-filter: blur(40px) saturate(1.8); color: var(--label); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 0 0 0.5px rgba(0, 0, 0, 0.22), 0 12px 28px -6px rgba(0, 0, 0, 0.32); }
+.sheet { border: 0; padding: 18px; border-radius: var(--r-lg); width: min(300px, calc(100vw - 32px)); background: var(--sheet); color: var(--label); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 0 0 0.5px rgba(0, 0, 0, 0.22), 0 12px 28px -6px rgba(0, 0, 0, 0.32); }
 /* Sheets leave the way they arrive. An open sheet is always fully visible: the closed state
    and @starting-style only shape the way in and out, and where they are unsupported it just appears. */
 .sheet { opacity: 0; transform: translateY(-8px) scale(0.97); transition: opacity 0.2s var(--out), transform 0.2s var(--out), overlay 0.2s allow-discrete, display 0.2s allow-discrete; }
@@ -273,7 +274,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 
 /* notice */
 /* floats over the bottom edge so an error never pushes the layout out of the window */
-.notice { position: fixed; z-index: 6; inset: auto 16px 14px; max-width: 488px; margin: 0 auto; min-height: 64px; padding: 9px 14px; border-radius: var(--r-md); background: var(--sheet); -webkit-backdrop-filter: blur(40px) saturate(1.8); backdrop-filter: blur(40px) saturate(1.8); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 6px 16px -6px rgba(0, 0, 0, 0.3); display: flex; gap: 12px; align-items: center; justify-content: space-between; color: var(--red); font-weight: 500; }
+.notice { position: fixed; z-index: 6; inset: auto 16px 14px; max-width: 488px; margin: 0 auto; min-height: 64px; padding: 9px 14px; border-radius: var(--r-md); background: var(--sheet); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 6px 16px -6px rgba(0, 0, 0, 0.3); display: flex; gap: 12px; align-items: center; justify-content: space-between; color: var(--red); font-weight: 500; }
 .notice .text { flex: 1; min-width: 0; max-height: min(40vh, 220px); overflow-y: auto; overflow-wrap: anywhere; white-space: pre-line; }
 
 /* adaptive tab */
@@ -310,14 +311,13 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 
 /* System Settings > Accessibility > Display: Increase contrast, Reduce transparency */
 @media (prefers-contrast: more) {
-  :root, .mac { --label2: rgba(0, 0, 0, 0.82); --sep: rgba(0, 0, 0, 0.45); --edge: rgba(0, 0, 0, 0.5); --group: #fff; --tile: #fff; --fill: rgba(0, 0, 0, 0.1); --fill2: rgba(0, 0, 0, 0.2); --knob-off: rgba(0, 0, 0, 0.6); }
+  :root { --label2: rgba(0, 0, 0, 0.82); --sep: rgba(0, 0, 0, 0.45); --edge: rgba(0, 0, 0, 0.5); --group: #fff; --tile: #fff; --fill: rgba(0, 0, 0, 0.1); --fill2: rgba(0, 0, 0, 0.2); --knob-off: rgba(0, 0, 0, 0.6); }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
-  :root, .mac { --label2: rgba(255, 255, 255, 0.86); --sep: rgba(255, 255, 255, 0.45); --edge: rgba(255, 255, 255, 0.5); --group: #1c1c1e; --tile: #1c1c1e; --fill: rgba(255, 255, 255, 0.14); --fill2: rgba(255, 255, 255, 0.26); --knob-off: rgba(255, 255, 255, 0.55); }
+  :root { --label2: rgba(255, 255, 255, 0.86); --sep: rgba(255, 255, 255, 0.45); --edge: rgba(255, 255, 255, 0.5); --group: #1c1c1e; --tile: #1c1c1e; --fill: rgba(255, 255, 255, 0.14); --fill2: rgba(255, 255, 255, 0.26); --knob-off: rgba(255, 255, 255, 0.55); }
 }
 @media (prefers-reduced-transparency: reduce) {
   :root { --sheet: #f4f4f5; }
-  .sheet, .notice { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) { :root { --sheet: #2a2a2c; } }
 

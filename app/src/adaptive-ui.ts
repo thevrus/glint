@@ -1,16 +1,16 @@
 import { call, type AdaptiveSettings, type AdaptiveView } from "./api";
 import { h, s } from "./dom";
-import { segmented, thinSlider, toggle } from "./controls";
+import { thinSlider, toggle } from "./controls";
 import { kelvinGradient } from "./color";
 import { row, stack, unit, value } from "./ui";
 
-const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`;
+const hhmm = (min: number) => { const m = Math.round(min); return `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
 const parse = (t: string) => {
   const [a, b] = t.split(":").map(Number);
   return Number.isFinite(a) && Number.isFinite(b) ? a * 60 + b : 0;
 };
 
-type SliderKey = "dayTemp" | "nightTemp" | "dayBrightness" | "nightBrightness" | "rampMin";
+type SliderKey = "dayTemp" | "nightTemp" | "dayBrightness" | "nightBrightness";
 
 /** `tab` is the compact Auto tab; `settings` holds the rarely used options for the gear sheet. */
 export function createAdaptive(): { tab: HTMLElement; settings: HTMLElement; update(v: AdaptiveView): void } {
@@ -97,73 +97,34 @@ export function createAdaptive(): { tab: HTMLElement; settings: HTMLElement; upd
     h("div", { class: "row pair" }, mk("dayTemp", "Day", 2700, 6500, 100, K, true), mk("nightTemp", "Night", 2700, 6500, 100, K, true)),
   );
 
-  // ---- sheet settings
-  const mode = segmented(["Sun", "Fixed Times"], "Schedule", (i) => edit({ mode: i === 0 ? "sun" : "fixed" }));
-  const num = (label: string, key: "lat" | "lon", ph: string) => {
-    const inp = h("input", { class: "field", type: "text", inputmode: "decimal", placeholder: ph, "aria-label": label, autocomplete: "off" }) as HTMLInputElement;
-    inp.addEventListener("change", () => {
-      const t = inp.value.trim().replace(",", ".");
-      edit({ [key]: t === "" || !Number.isFinite(Number(t)) ? null : Number(t) } as Partial<AdaptiveSettings>);
-    });
-    return inp;
-  };
-  const lat = num("Latitude", "lat", "52.37");
-  const lon = num("Longitude", "lon", "4.90");
-  const time = (label: string, key: "sunriseMin" | "sunsetMin") => {
+  // ---- sheet settings: two times, two brightnesses, one switch. The rest keeps its defaults.
+  const time = (label: string) => {
     const inp = h("input", { class: "field time", type: "time", "aria-label": label }) as HTMLInputElement;
-    inp.addEventListener("change", () => inp.value && edit({ [key]: parse(inp.value) } as Partial<AdaptiveSettings>));
+    // a config that follows the sun by coordinates becomes plain clock times once either is edited
+    inp.addEventListener("change", () => inp.value && edit({ mode: "fixed", sunriseMin: parse(rise.value), sunsetMin: parse(set.value) }));
     return inp;
   };
-  const rise = time("Sunrise", "sunriseMin");
-  const set = time("Sunset", "sunsetMin");
+  const rise: HTMLInputElement = time("Day starts");
+  const set: HTMLInputElement = time("Night starts");
   const back = toggle("Tint back light", (on) => edit({ includeBack: on }));
-  const turnOn = toggle("Turn on at sunrise", (on) => edit({ turnOn: on }));
-  const pause = h("select", { class: "select", "aria-label": "After a manual change" },
-    h("option", { value: "nextTransition", text: "Until next transition" }),
-    h("option", { value: "oneHour", text: "For 1 hour" }),
-    h("option", { value: "tomorrow", text: "Until tomorrow" }),
-  ) as HTMLSelectElement;
-  pause.addEventListener("change", () => edit({ pauseMode: pause.value as AdaptiveSettings["pauseMode"] }));
-  const sunRows = h("div", {}, row("Latitude", lat), row("Longitude", lon));
-  const fixedRows = h("div", {}, row("Sunrise", rise), row("Sunset", set));
-  const hint = h("p", { class: "footer", text: "Set a latitude and longitude to follow the sun. Until then, 07:00 and 19:00 are used." });
 
   const settings = h("div", { class: "adaptive-settings" },
-    h("div", { class: "group" },
-      h("div", { class: "row" }, mode.el),
-      sunRows,
-      fixedRows,
-    ),
-    hint,
+    h("div", { class: "group" }, row("Day starts", rise), row("Night starts", set)),
     h("div", { class: "group" },
       mk("dayBrightness", "Day brightness", 30, 400, 5, lm, false),
       mk("nightBrightness", "Night brightness", 30, 400, 5, lm, false),
-      mk("rampMin", "Transition length", 15, 180, 5, (v) => unit(v, "min"), false),
     ),
-    h("div", { class: "group" },
-      row("Tint back light", back.el, "Back light follows the colour temperature"),
-      row("Turn on at sunrise", turnOn.el),
-      row("After a manual change", pause, "How long to pause adapting"),
-    ),
+    h("div", { class: "group" }, row("Tint back light", back.el, "The back light warms and cools with the front")),
   );
 
   function sync(c: AdaptiveSettings) {
     power.set(c.enabled);
-    mode.set(c.mode === "sun" ? 0 : 1);
-    sunRows.hidden = c.mode !== "sun";
-    fixedRows.hidden = c.mode !== "fixed";
-    if (document.activeElement !== lat) lat.value = c.lat == null ? "" : String(c.lat);
-    if (document.activeElement !== lon) lon.value = c.lon == null ? "" : String(c.lon);
-    rise.value = hhmm(c.sunriseMin);
-    set.value = hhmm(c.sunsetMin);
+    if (c.mode === "fixed" && document.activeElement !== rise && document.activeElement !== set) { rise.value = hhmm(c.sunriseMin); set.value = hhmm(c.sunsetMin); }
     sliders.dayTemp.set(c.dayTemp);
     sliders.nightTemp.set(c.nightTemp);
     sliders.dayBrightness.set(c.dayBrightness);
     sliders.nightBrightness.set(c.nightBrightness);
-    sliders.rampMin.set(c.rampMin);
     back.set(c.includeBack);
-    turnOn.set(c.turnOn);
-    pause.value = c.pauseMode;
   }
 
   return {
@@ -181,7 +142,8 @@ export function createAdaptive(): { tab: HTMLElement; settings: HTMLElement; upd
         : c.enabled ? `${unit(v.targetTemp, "K")}, ${unit(v.targetBrightness, "lm")}${next}`
         : "Off";
       resume.hidden = !v.pausedText;
-      hint.hidden = !(c.mode === "sun" && v.fallback);
+      // following the sun: show today's real times
+      if (c.mode === "sun" && document.activeElement !== rise && document.activeElement !== set) { rise.value = hhmm(v.sunrise); set.value = hhmm(v.sunset); }
       last = v;
       draw();
       graph.classList.toggle("off", !c.enabled);

@@ -2,6 +2,7 @@
 
 mod adaptive;
 mod device;
+mod effects;
 mod screen;
 mod store;
 mod tray;
@@ -88,7 +89,8 @@ async fn set_back_brightness(app: AppHandle, pct: u8) -> Res<()> {
 
 fn not_syncing() -> Res<()> {
     if screen::active() {
-        return Err("Turn off Match Screen to pick colours.".into());
+        let name = screen::mode().map_or("the effect", screen::Mode::name);
+        return Err(format!("Turn off {name} to pick colours."));
     }
     Ok(())
 }
@@ -137,7 +139,9 @@ pub fn apply_preset_by_id(app: &AppHandle, id: &str) -> Res<()> {
     screen::stop(app, false);
     let has_back = app.state::<Shared>().snap.lock().unwrap().has_back;
     let zones = hex7(&p.zones);
-    let (b, t, fo, bb, bo) = (p.brightness, p.temperature, p.front_on, p.back_brightness, p.back_on);
+    // a preset from an older or hand-edited config may hold a temperature the light refuses
+    let t = ((p.temperature + 50) / 100 * 100).clamp(2700, 6500);
+    let (b, fo, bb, bo) = (p.brightness, p.front_on, p.back_brightness, p.back_on);
     adaptive::manual(app);
     run(
         app,
@@ -146,9 +150,8 @@ pub fn apply_preset_by_id(app: &AppHandle, id: &str) -> Res<()> {
             l.set_temperature(t)?;
             if has_back {
                 l.set_back_brightness(bb)?;
-                for (i, c) in zones.iter().enumerate() {
-                    l.set_back_zone(i as u8 + 1, *c)?;
-                }
+                let list: Vec<(u8, [u8; 3])> = zones.iter().enumerate().map(|(i, c)| (i as u8 + 1, *c)).collect();
+                l.set_back_zones(&list)?;
                 l.set_back_on(bo)?;
             }
             l.set_on(fo)
@@ -309,8 +312,8 @@ fn main() {
             set_adaptive,
             adaptive_resume,
             window_ready,
-            screen::set_screen_sync,
-            screen::get_screen_sync
+            screen::set_back_mode,
+            screen::get_back_mode
         ])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;

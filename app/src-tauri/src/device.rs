@@ -62,8 +62,8 @@ pub fn run<T: Send + 'static>(
     Ok(v)
 }
 
-/// Like `run`, but leaves the cache alone and publishes nothing on success (Match Screen
-/// writes ten times a second and paces its own state events).
+/// Like `run`, but leaves the cache alone and publishes nothing on success (Match Screen and
+/// the effects write many times a second and pace their own state events).
 pub fn exec<T: Send + 'static>(
     app: &AppHandle,
     op: impl FnOnce(&Light) -> glint_core::Result<T> + Send + 'static,
@@ -207,13 +207,12 @@ fn poll(app: &AppHandle, api: &mut HidApi, dev: &mut Dev, misses: &mut u32, poll
                         *sh.snap.lock().unwrap() = s;
                         publish(app);
                         if l.info.has_back {
-                            for (i, hex) in restore.iter().flatten().enumerate().take(ZONES) {
-                                let Some(rgb) = parse_hex(hex) else { continue };
-                                if let Err(e) = l.set_back_zone(i as u8 + 1, rgb) {
-                                    *misses += 1;
-                                    mark_disconnected(app, Some(e.to_string()));
-                                    return backoff(*misses);
-                                }
+                            let list: Vec<(u8, [u8; 3])> =
+                                restore.iter().flatten().enumerate().take(ZONES).filter_map(|(i, hex)| parse_hex(hex).map(|c| (i as u8 + 1, c))).collect();
+                            if let Err(e) = l.set_back_zones(&list) {
+                                *misses += 1;
+                                mark_disconnected(app, Some(e.to_string()));
+                                return backoff(*misses);
                             }
                         }
                         dev.light = Some(l);

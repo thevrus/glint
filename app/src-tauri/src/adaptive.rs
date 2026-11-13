@@ -233,7 +233,8 @@ pub struct Target {
 pub fn target_at(c: &Adaptive, t: f64, sr: f64, ss: f64) -> Target {
     let (tg, bg) = curve_at(t, sr, ss, c.ramp_min as f64);
     Target {
-        temp: lerp(c.night_temp as f64, c.day_temp as f64, tg).round().clamp(2700.0, 6500.0) as u16,
+        // whole hundreds: the light takes nothing between
+        temp: ((lerp(c.night_temp as f64, c.day_temp as f64, tg) / 100.0).round() * 100.0).clamp(2700.0, 6500.0) as u16,
         brightness: lerp(c.night_brightness as f64, c.day_brightness as f64, bg).round().clamp(30.0, 400.0) as u16,
         back: lerp(c.back_night as f64, c.back_day as f64, bg).round().clamp(1.0, 100.0) as u8,
     }
@@ -452,7 +453,9 @@ fn apply(app: &AppHandle, cfg: &Adaptive, v: &View, last_min: Option<f64>) {
         }
     }
     let mut temp_now = snap.temperature;
-    if let Some(k) = step(snap.temperature as i32, v.target_temp as i32, 100, 200) {
+    // The light only takes whole hundreds of kelvin and rejects anything between.
+    let temp_target = (v.target_temp as i32 + 50) / 100 * 100;
+    if let Some(k) = step(snap.temperature as i32 / 100 * 100, temp_target, 100, 200) {
         let k = k as u16;
         match device::run(app, move |l| l.set_temperature(k), |s| s.temperature = k) {
             Ok(_) => {

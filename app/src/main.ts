@@ -7,8 +7,6 @@ import { h, icon } from "./dom";
 import { createHero } from "./hero";
 import { row, setPressed, stack, unit, value } from "./ui";
 
-document.documentElement.classList.toggle("mac", /Mac/.test(navigator.userAgent));
-
 let st: State | null = null;
 let zone = 1;
 let all = false;
@@ -66,17 +64,15 @@ const sendBright = throttled((lm: number) => call("set_front_brightness", { lm }
 const bright = bigSlider({ label: "Front brightness", glyph: "sun", min: 30, max: 400, onInput: setBright });
 const tempVal = value();
 const sendTemp = throttled((kelvin: number) => call("set_temperature", { kelvin }), 60);
-const temp = thinSlider({ label: "Colour temperature", min: 2700, max: 6500, step: 50, gradient: kelvinGradient(), onInput: (k) => setTemp(k) });
+const temp = thinSlider({ label: "Colour temperature", min: 2700, max: 6500, step: 100, gradient: kelvinGradient(), onInput: (k) => setTemp(k) });
 const lightBody = h("div", { class: "panel-body" }, row("Front light", frontPower.el), stack("Brightness", brightVal, bright.el), stack("Temperature", tempVal, temp.el));
 
 // ---------------------------------------------------------------- back tab
 const backPower = toggle("Back light", setBack);
 const backVal = value();
 const sendBackB = throttled((pct: number) => call("set_back_brightness", { pct }), 60);
-const backBright = bigSlider({
-  label: "Back brightness", glyph: "bulb", min: 1, max: 100,
-  onInput: (p) => { touch("backB"); wake("back"); if (st) st.backBrightness = p; backVal.textContent = `${p}%`; redraw(true); paintFills(); sendBackB(p); },
-});
+function setBackBright(p: number) { touch("backB"); wake("back"); if (st) st.backBrightness = p; backBright.set(p); backVal.textContent = `${p}%`; redraw(true); paintFills(); sendBackB(p); }
+const backBright = bigSlider({ label: "Back brightness", glyph: "bulb", min: 1, max: 100, onInput: setBackBright });
 const sendZone = throttled((a: { zone: number; color: string }) => call("set_back_zone", a), 80);
 const sendAll = throttled((color: string) => call("set_back_all", { color }), 150);
 const picker = colorPicker((hex) => {
@@ -91,38 +87,55 @@ const allBtn = h("button", { type: "button", class: "btn small", "aria-pressed":
 picker.side.prepend(zoneLabel);
 picker.side.append(allBtn);
 function syncZone() {
-  zoneLabel.textContent = matching ? "Screen" : all ? "All zones" : `Zone ${zone}`;
+  zoneLabel.textContent = matching ? (mode === "screen" ? "Screen" : modeName()) : all ? "All zones" : `Zone ${zone}`;
   setPressed(allBtn, all);
   // while the screen drives the zones the dimmed picker holds its colour instead of flickering along
   if (!matching) picker.set(st?.zones[Math.max(0, all ? 0 : zone - 1)] ?? "#ffffff");
 }
-// Match Screen: the back light follows the display; the picker steps aside meanwhile.
+// Modes that drive the back light on their own (Match Screen and the animated effects); the
+// picker steps aside while one runs.
+const MODES: [string, string][] = [["off", "Colours"], ["screen", "Match Screen"], ["rainbow", "Rainbow"], ["aurora", "Aurora"], ["ocean", "Ocean"], ["ember", "Ember"], ["breathe", "Breathe"]];
+const modeName = () => MODES.find(([v]) => v === mode)?.[1] ?? "";
+let mode = "off";
 let matching = false;
-let matchBusy = false;
-const matchBtn = h("button", { type: "button", class: "btn small", "aria-pressed": "false", title: "Back light follows the colours on your screen", text: "Match Screen", onClick: async () => {
-  // the first run can wait behind the Screen Recording prompt: no second toggle meanwhile
-  if (matchBusy) return;
-  matchBusy = true;
-  const on = !matching;
+let modeBusy = false;
+// The same menu sits in both views; setMode keeps every copy on the running mode.
+const modeSels: HTMLSelectElement[] = [];
+function modeSelect() {
+  const s = h("select", { class: "select", "aria-label": "Back light mode", title: "Your own colours, the colours on your screen, or an animation" },
+    ...MODES.map(([value, text]) => h("option", { value, text })),
+  ) as HTMLSelectElement;
+  s.addEventListener("change", () => void requestMode(s.value));
+  modeSels.push(s);
+  return s;
+}
+async function requestMode(want: string): Promise<boolean> {
+  // the first Match Screen can wait behind the Screen Recording prompt: no second change meanwhile
+  if (modeBusy) { setMode(mode); return false; }
+  modeBusy = true;
   // a unit Ok arrives as null; call() gives undefined only on failure (and shows the notice)
-  const ok = (await call("set_screen_sync", { on })) !== undefined;
-  matchBusy = false;
-  if (ok || !on) setMatching(on);
-  if (ok && on) wake("back");
-} });
+  const ok = (await call("set_back_mode", { mode: want })) !== undefined;
+  modeBusy = false;
+  setMode(ok ? want : mode);
+  if (ok && want !== "off") wake("back");
+  return ok;
+}
+const modeSel = modeSelect();
+const simpleMode = modeSelect();
 const pickerRow = h("div", { class: "row picker-row" }, picker.el);
-function setMatching(on: boolean) {
-  matching = on;
-  if (on) delete touched.zones;
-  setPressed(matchBtn, on);
-  pickerRow.classList.toggle("synced", on);
+function setMode(m: string) {
+  mode = MODES.some(([v]) => v === m) ? m : "off";
+  matching = mode !== "off";
+  if (matching) delete touched.zones;
+  for (const s of modeSels) s.value = mode;
+  pickerRow.classList.toggle("synced", matching);
   syncZone();
   redraw();
 }
 const frag = (...n: Node[]) => { const f = document.createDocumentFragment(); f.append(...n); return f; };
 const noBack = h("p", { class: "none", text: "This light has no back light." });
 const backBody = h("div", { class: "panel-body" },
-  row("Back light", frag(matchBtn, backPower.el)),
+  row("Back light", frag(modeSel, backPower.el)),
   h("div", { class: "row combo" }, backBright.el, backVal),
   pickerRow,
 );
@@ -152,10 +165,32 @@ tabs.set(tabIdx);
 paintTab();
 
 // ---------------------------------------------------------------- simple view
-// One tall slider (tap for power, drag for brightness) and a row of colour temperatures.
+// One tall slider (tap for power, drag for brightness) and a row of colours, for one light at
+// a time: the switch above them says which, so nothing on screen is ambiguous.
 const simpleBright = verticalSlider({
   label: "Front light", min: 30, max: 400, step: 10, text: (v) => unit(v, "lm"), onInput: setBright,
   onToggle: () => { if (st) setFront(!st.frontOn); },
+});
+const simpleBack = verticalSlider({
+  label: "Back light", min: 1, max: 100, step: 5, text: (v) => `${v}%`, onInput: setBackBright,
+  onToggle: () => { if (st) setBack(!st.backOn); },
+});
+let side: "front" | "back" = safe(() => localStorage.getItem("side"), null) === "back" ? "back" : "front";
+const sideTabs = segmented(["Front", "Back"], "Light", (i) => { side = i ? "back" : "front"; safe(() => localStorage.setItem("side", side), undefined); paintSide(); });
+async function setBackAll(hex: string) {
+  if (!st) return;
+  // picking a colour is the way out of Match Screen or an effect
+  if (matching && !(await requestMode("off"))) return;
+  touch("zones"); wake("back");
+  st.zones = Array(7).fill(hex);
+  syncZone(); redraw(); paintFills(); sendAll(hex);
+}
+const BACKS = ["#ffffff", "#ffb46b", "#ff5a3c", "#3ccf8e", "#3c8cff"];
+const BACK_NAMES = ["White", "Amber", "Coral", "Mint", "Blue"];
+const backSwatches = BACKS.map((c, i) => {
+  const b = h("button", { type: "button", class: "sw", title: BACK_NAMES[i], "aria-label": `${BACK_NAMES[i]} back light`, "aria-pressed": "false", onClick: () => void setBackAll(c) });
+  b.style.setProperty("--c", c);
+  return b;
 });
 const TEMPS = [6500, 5500, 4400, 3400, 2700];
 const tempSwatches = TEMPS.map((k) => {
@@ -164,8 +199,20 @@ const tempSwatches = TEMPS.map((k) => {
   return b;
 });
 const backDot = h("span", {});
-const backSwatch = h("button", { type: "button", class: "sw back", title: "Back Light Colours", "aria-label": "Back light colours", onClick: () => { setView(false); selectTab(1); } }, backDot);
-const simpleView = h("div", { class: "simple-view simple-only" }, simpleBright.el, h("div", { class: "swatches", role: "group", "aria-label": "Colour temperature" }, ...tempSwatches, backSwatch));
+const backSwatch = h("button", { type: "button", class: "sw back", title: "Colour for Each Zone", "aria-label": "Colour for each zone", onClick: () => { setView(false); selectTab(1); } }, backDot);
+const frontRow = h("div", { class: "swatches", role: "group", "aria-label": "Colour temperature" }, ...tempSwatches);
+const backRow = h("div", { class: "swatches", role: "group", "aria-label": "Back light colour" }, ...backSwatches, backSwatch);
+const simpleView = h("div", { class: "simple-view simple-only" }, sideTabs.el, simpleBright.el, simpleBack.el, frontRow, backRow, simpleMode);
+sideTabs.el.hidden = simpleBack.el.hidden = backRow.hidden = simpleMode.hidden = true;
+/** Show the controls of the chosen light. A light with no back has no switch at all. */
+function paintSide() {
+  const back = side === "back" && !!st?.hasBack;
+  sideTabs.el.hidden = !st?.hasBack;
+  sideTabs.set(back ? 1 : 0);
+  simpleBright.el.hidden = frontRow.hidden = back;
+  simpleBack.el.hidden = backRow.hidden = simpleMode.hidden = !back;
+  paintSub();
+}
 let simple = safe(() => localStorage.getItem("view"), null) !== "advanced";
 function setView(s: boolean) {
   if (s !== simple) safe(() => localStorage.setItem("view", s ? "simple" : "advanced"), undefined);
@@ -239,7 +286,7 @@ const openSettings = () => { gearSheet.showModal(); gearSheet.focus(); };
 gearSheet.append(
   h("div", { class: "sheet-head" }, h("h3", { text: "Settings" }), h("button", { type: "button", class: "btn primary", text: "Done", onClick: () => gearSheet.close() })),
   h("div", { class: "sheet-body" },
-    h("h4", { text: "Adaptive" }), adaptive.settings,
+    h("h4", { text: "Time of Day" }), adaptive.settings,
     h("h4", { text: "Presets" }), manageList),
 );
 // close on a click that both starts and ends on the backdrop, so a text drag released outside does not dismiss
@@ -247,13 +294,37 @@ let downOnBackdrop = false;
 gearSheet.addEventListener("pointerdown", (e) => { downOnBackdrop = e.target === gearSheet; });
 gearSheet.addEventListener("click", (e) => { if (e.target === gearSheet && downOnBackdrop) gearSheet.close(); });
 const gear = h("button", { type: "button", class: "gear adv-only", "aria-label": "Settings", title: "Settings", onClick: openSettings }, icon("more", 20));
+// One button for every light: off if anything is on, otherwise back to what was on before.
+let wasOn = { front: true, back: false };
+const powerBtn = h("button", { type: "button", class: "gear power", onClick: () => {
+  if (!st) return;
+  if (st.frontOn || st.backOn) {
+    // turning the first one off repaints and would remember the half-off state
+    const keep = { front: st.frontOn, back: st.backOn };
+    if (st.frontOn) setFront(false);
+    if (st.backOn) setBack(false);
+    wasOn = keep;
+  } else {
+    if (wasOn.front || !st.hasBack) setFront(true);
+    if (wasOn.back && st.hasBack) setBack(true);
+  }
+} }, icon("power", 20));
+function paintPower() {
+  const on = !!st && (st.frontOn || st.backOn);
+  // remembered here, not on the click, so it also follows the toggles, the tray and presets
+  if (st && on) wasOn = { front: st.frontOn, back: st.backOn };
+  const label = on ? (st?.hasBack ? "Turn Off All Lights" : "Turn Off") : "Turn On";
+  powerBtn.title = label;
+  powerBtn.setAttribute("aria-label", label);
+  powerBtn.classList.toggle("on", on);
+}
 const advBtn = h("button", { type: "button", class: "gear simple-only", "aria-label": "Advanced controls", title: "Advanced", onClick: () => { setView(false); doneBtn.focus(); } }, icon("slider", 20));
 const doneBtn = h("button", { type: "button", class: "btn small adv-only", text: "Done", onClick: () => { setView(true); advBtn.focus(); } });
 
 // ---------------------------------------------------------------- shell
 const title = h("h1", { text: "Litra Beam" });
 const sub = h("p", { class: "sub" });
-const header = h("header", {}, h("div", { class: "titlerow" }, title, h("div", { class: "hbtns" }, advBtn, doneBtn, gear)), sub);
+const header = h("header", {}, h("div", { class: "titlerow" }, title, h("div", { class: "hbtns" }, powerBtn, advBtn, doneBtn, gear)), sub);
 const content = h("main", { class: "content" }, header, notice, simpleView, h("div", { class: "hero-wrap" }, hero.el), tabs.el, panel, strip);
 content.classList.toggle("simple", simple);
 
@@ -267,7 +338,7 @@ const emptyDetail = h("p", { class: "reason" });
 const empty = h("main", { class: "empty", hidden: true },
   h("div", { class: "big" }, icon("bulbslash", 56, 1.2)),
   h("h2", { text: "No Light Found" }),
-  h("p", { text: "Turn on your Litra Beam LX and make sure it is paired in your Bluetooth settings." }),
+  h("p", { text: "Turn on your Litra light and make sure it is paired in your Bluetooth settings." }),
   emptyDetail, retry);
 
 document.getElementById("app")!.append(content, empty, gearSheet, nameSheet);
@@ -290,11 +361,15 @@ function paintFills() {
   if (st) {
     simpleBright.set(st.brightness, st.frontOn);
     simpleBright.color(front);
+    simpleBack.set(st.backBrightness, st.backOn);
+    simpleBack.color(css(back), dark(back));
     tempSwatches.forEach((b, i) => b.setAttribute("aria-pressed", String(Math.abs(st!.temperature - TEMPS[i]) <= 100)));
-    backSwatch.hidden = !st.hasBack;
+    const one = st.zones.every((z) => z.toLowerCase() === st!.zones[0]?.toLowerCase()) ? st.zones[0]?.toLowerCase() : "";
+    backSwatches.forEach((b, i) => b.setAttribute("aria-pressed", String(!matching && BACKS[i] === one)));
     backDot.style.background = css(avg);
-    if (simple) paintSub();
+    paintSide();
   }
+  paintPower();
   backBody.classList.toggle("off", !st?.backOn);
 }
 function paintControls(animate: boolean) {
@@ -343,7 +418,12 @@ function render(next: State) {
 
 let av: AdaptiveView | null = null;
 function paintSub() {
-  if (simple && st) { sub.textContent = st.frontOn ? `${unit(st.brightness, "lm")} · ${unit(st.temperature, "K")}` : "Off"; return; }
+  if (simple && st) {
+    sub.textContent = side === "back" && st.hasBack
+      ? (st.backOn ? `Back light · ${matching ? `${modeName()} · ` : ""}${st.backBrightness}%` : "Back light off")
+      : st.frontOn ? `${st.hasBack ? "Front light · " : ""}${unit(st.brightness, "lm")} · ${unit(st.temperature, "K")}` : st.hasBack ? "Front light off" : "Off";
+    return;
+  }
   const link = st?.connected ? (st.model.includes("Bluetooth") ? "Bluetooth" : "USB") : "";
   const auto = !av?.settings.enabled ? "" : av.pausedText ? "Adaptive paused" : "Adaptive";
   sub.textContent = [link, auto].filter(Boolean).join(" · ");
@@ -371,10 +451,10 @@ if (boot) {
     on<AdaptiveView>("adaptive", renderAdaptive),
     on<Preset[]>("presets", (p) => { presets = p; paintPresets(); }),
     on<string>("notice", notify),
-    on<boolean>("screen-sync", setMatching),
+    on<string>("back-mode", setMode),
   ]);
-  const [s0, p0, a0, sync] = await Promise.all([call<State>("get_state"), call<Preset[]>("list_presets"), call<AdaptiveView>("get_adaptive"), call<boolean>("get_screen_sync")]);
-  setMatching(!!sync);
+  const [s0, p0, a0, sync] = await Promise.all([call<State>("get_state"), call<Preset[]>("list_presets"), call<AdaptiveView>("get_adaptive"), call<string>("get_back_mode")]);
+  setMode(sync ?? "off");
   presets = p0 ?? [];
   paintPresets();
   // also covers anything emitted between the injected snapshot and the listeners going live

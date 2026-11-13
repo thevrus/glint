@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 hidapi = "2.6.7"
-thiserror = "2"
 
 [[bin]]
 name = "glint"

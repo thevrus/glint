@@ -29,22 +29,25 @@ export function s<K extends keyof SVGElementTagNameMap>(
   return el;
 }
 
-// Simple 20pt glyphs in one style: 1.6 stroke, round caps, no fill unless noted.
+// One set, one grid: a 20 px box with the drawing kept inside 2.75..17.25, a 1.5 stroke with
+// round caps and joins, 2 px corners, and lines that stop short of a knob instead of running
+// through it. No fills except the dots.
 const G: Record<string, string> = {
-  sun: '<circle cx="10" cy="10" r="3.6"/><path d="M10 2.6v2M10 15.4v2M2.6 10h2M15.4 10h2M4.8 4.8l1.4 1.4M13.8 13.8l1.4 1.4M4.8 15.2l1.4-1.4M13.8 6.2l1.4-1.4"/>',
-  bulb: '<path d="M6.6 12.4c-1.3-1-2.1-2.5-2.1-4.2a5.5 5.5 0 0 1 11 0c0 1.7-.8 3.2-2.1 4.2-.5.4-.8 1-.8 1.6v.4H7.4V14c0-.6-.3-1.2-.8-1.600z"/><path d="M7.8 17h4.4"/>',
-  plus: '<path d="M10 4.5v11M4.5 10h11"/>',
-  trash: '<path d="M4 5.6h12M8 5.6V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.6M5.4 5.6l.7 10a1.3 1.3 0 0 0 1.3 1.2h5.2a1.3 1.3 0 0 0 1.3-1.200l.7-10"/>',
-  moon: '<path d="M16.2 12.2A6.6 6.6 0 0 1 7.8 3.800 6.6 6.6 0 1 0 16.200 12.200z"/>',
-  video: '<rect x="2.6" y="5.2" width="10.4" height="9.6" rx="2.400"/><path d="m13 8.800 4.400-2.400v7.200L13 11.200"/>',
-  focus: '<circle cx="10" cy="10" r="6.800"/><circle cx="10" cy="10" r="3"/><circle cx="10" cy="10" r=".6"/>',
-  sunset: '<path d="M3 14h14M6 14a4 4 0 0 1 8 0M10 4v2.600M4.400 7.600l1.400 1.400M15.600 7.600 14.200 9M7 17h6"/>',
-  slider: '<path d="M3.500 6h13M3.500 14h13"/><circle cx="7" cy="6" r="1.900"/><circle cx="13" cy="14" r="1.900"/>',
-  more: '<circle cx="4.500" cy="10" r="1.200" fill="currentColor"/><circle cx="10" cy="10" r="1.200" fill="currentColor"/><circle cx="15.500" cy="10" r="1.200" fill="currentColor"/>',
-  bulbslash: '<path d="M6.600 12.400c-1.300-1-2.100-2.500-2.100-4.200a5.500 5.500 0 0 1 11 0c0 1.700-.8 3.200-2.100 4.200-.5.400-.8 1-.8 1.600v.4H7.400V14c0-.6-.3-1.200-.8-1.600z"/><path d="M7.800 17h4.400M3 3l14 14"/>',
+  sun: '<circle cx="10" cy="10" r="3"/><path d="M10 2.75V4.5M10 15.5v1.75M2.75 10H4.5M15.5 10h1.75M4.87 4.87l1.24 1.24M13.89 13.89l1.24 1.24M4.87 15.13l1.24-1.24M13.89 6.11l1.24-1.24"/>',
+  bulb: '<path d="M7.5 13.25A5.25 5.25 0 1 1 12.5 13.25V14.5h-5z"/><path d="M8.25 17.25h3.5"/>',
+  bulbslash: '<path d="M7.5 13.25A5.25 5.25 0 1 1 12.5 13.25V14.5h-5z"/><path d="M8.25 17.25h3.5M3.25 2.75l13.5 14.5"/>',
+  plus: '<path d="M10 4.25v11.5M4.25 10h11.5"/>',
+  power: '<path d="M10 2.75v6.5M6 5.4a6.25 6.25 0 1 0 8 0"/>',
+  trash: '<path d="M4.25 5.75h11.5M7.75 5.75V4.5c0-.69.56-1.25 1.25-1.25h2c.69 0 1.25.56 1.25 1.25v1.25M5.75 5.75l.6 9.6a1.5 1.5 0 0 0 1.5 1.4h4.3a1.5 1.5 0 0 0 1.5-1.4l.6-9.6"/>',
+  moon: '<path d="M17 10.6A6.8 6.8 0 1 1 9.4 3a5.5 5.5 0 0 0 7.6 7.6z"/>',
+  video: '<rect x="2.75" y="5.75" width="9.5" height="8.5" rx="2"/><path d="m12.25 8.75 5-2.5v7.5l-5-2.5"/>',
+  focus: '<circle cx="10" cy="10" r="7.25"/><circle cx="10" cy="10" r="3.25"/><circle cx="10" cy="10" r=".9" fill="currentColor" stroke="none"/>',
+  sunset: '<path d="M2.75 14.25h14.5M5.75 14.25a4.25 4.25 0 0 1 8.5 0M10 4.75v2M4.4 7.9l1.4 1.4M15.6 7.9l-1.4 1.4M7 17.25h6"/>',
+  slider: '<path d="M2.75 6.25H5M9 6.25h8.25M2.75 13.75H11M15 13.75h2.25"/><circle cx="7" cy="6.25" r="2"/><circle cx="13" cy="13.75" r="2"/>',
+  more: '<circle cx="4.5" cy="10" r="1.25" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.25" fill="currentColor" stroke="none"/><circle cx="15.5" cy="10" r="1.25" fill="currentColor" stroke="none"/>',
 };
 
-export function icon(name: string, size = 20, stroke = 1.6): HTMLSpanElement {
+export function icon(name: string, size = 20, stroke = 1.5): HTMLSpanElement {
   const el = document.createElement("span");
   el.className = "ic";
   el.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${G[name] ?? G.slider}</svg>`;

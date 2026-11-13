@@ -1197,7 +1197,6 @@ name = "glint-core"
 version = "0.1.0"
 dependencies = [
  "hidapi",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2170,6 +2169,7 @@ checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
 dependencies = [
  "bitflags 2.13.2",
  "dispatch2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
  "objc2-io-surface",

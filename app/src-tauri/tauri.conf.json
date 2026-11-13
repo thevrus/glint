@@ -20,15 +20,8 @@
         "minHeight": 600,
         "maxWidth": 560,
         "center": true,
-        "transparent": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "windowEffects": {
-          "effects": [
-            "sidebar"
-          ],
-          "state": "active"
-        }
+        "hiddenTitle": true
       }
     ],
     "security": {

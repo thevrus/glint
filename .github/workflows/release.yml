@@ -46,7 +46,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+            if [ -n "${!v}" ]; then { echo "$v<<EOF_$v"; echo "${!v}"; echo "EOF_$v"; } >> "$GITHUB_ENV"; fi
           done
 
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
@@ -59,6 +59,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Glint __VERSION__
           args: --target universal-apple-darwin
+
+      # A name without the version, so the README can link straight to the newest download.
+      - name: Add the stable download name
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp "target/universal-apple-darwin/release/bundle/dmg/Glint_${GITHUB_REF_NAME#v}_universal.dmg" "$RUNNER_TEMP/Glint.dmg"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Glint.dmg" --clobber
 
       - name: Point the Homebrew cask at this release
         run: |

@@ -28,6 +28,13 @@ fn main() -> Result<()> {
             let rgb = a.get(1).and_then(|s| hex(s)).ok_or(Error::Range("hex colour"))?;
             match n(2) { Some(z) => l.set_back_zone(z as u8, rgb)?, None => l.set_back_color(rgb)? }
         }
+        // seven colours, one per zone, written as a single frame
+        Some("back-zones") => {
+            let c: Vec<[u8; 3]> = a[1..].iter().filter_map(|s| hex(s)).collect();
+            if c.len() != 7 || a.len() != 8 { return Err(Error::Range("seven hex colours")); }
+            let list: Vec<(u8, [u8; 3])> = c.into_iter().enumerate().map(|(i, c)| (i as u8 + 1, c)).collect();
+            l.set_back_zones(&list)?
+        }
         _ => {}
     }
     println!("{}: front {} {} lm {} K", l.info.name, if l.is_on()? { "on" } else { "off" }, l.brightness()?, l.temperature()?);

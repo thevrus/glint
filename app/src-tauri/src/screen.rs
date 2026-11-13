@@ -1,8 +1,11 @@
-//! Match Screen: the back light follows the colours on the main display.
-//! A worker captures a tiny screenshot about ten times a second, averages seven vertical
-//! strips, smooths them over time and writes only the zones that moved. Each zone is one
-//! HID round trip, so the loop measures its writes and sends fewer when they run long.
+//! Back-light modes that run on their own: Match Screen, where the back light follows the
+//! colours on the main display, and the animated effects in `effects`.
+//! For Match Screen a worker takes a tiny screenshot a few times a second, averages seven vertical strips,
+//! and fades the light towards them slowly enough that it never pulls the eye. It is built
+//! to cost nothing when there is nothing to do: no screenshots while the back light is off,
+//! the light is away or the display sleeps, one a second while the picture stands still.
 use crate::device::{self, Shared};
+use crate::effects::{self, Effect};
 use crate::store::{parse_hex, to_hex, zones_or_default, ZONES};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,12 +16,19 @@ use tauri::{AppHandle, Emitter, Manager};
 /// The light faces the wall, so seen from the desk its zones may run the other way.
 /// false: left of the screen drives zone 1. Flip if colours land on the wrong side.
 const MIRROR: bool = false;
-const INTERVAL: Duration = Duration::from_millis(100);
-/// Smoothing time constant: a hard cut settles in about three of these (~300 ms).
-const TAU_MS: f32 = 100.0;
+/// One fade step while the colours are moving.
+const TICK: Duration = Duration::from_millis(80);
+/// Between screenshots while the picture is changing, and once it has stood still.
+const CAPTURE_GAP: Duration = Duration::from_millis(250);
+const IDLE_GAP: Duration = Duration::from_secs(1);
+const STILL_AFTER: Duration = Duration::from_secs(3);
+/// A screenshot this far (0..255, any channel of any zone) from the last counts as movement.
+const MOVED: f32 = 3.0;
+/// Smoothing time constant: a hard cut settles in about three of these (~1.5 s).
+const TAU_MS: f32 = 500.0;
 const SATURATION: f32 = 1.3;
 /// Largest channel change (0..255) worth a HID write.
-const THRESHOLD: u8 = 6;
+const THRESHOLD: u8 = 2;
 const EMIT_GAP: Duration = Duration::from_millis(200);
 
 pub type Rgb = [u8; 3];
@@ -27,13 +37,41 @@ type Res<T> = Result<T, String>;
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static RUN: Mutex<Option<Running>> = Mutex::new(None);
 
+/// What drives the back light while the user's own colours are set aside.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    Screen,
+    Effect(Effect),
+}
+
+impl Mode {
+    pub fn id(self) -> &'static str {
+        match self {
+            Mode::Screen => "screen",
+            Mode::Effect(e) => e.id(),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Screen => "Match Screen",
+            Mode::Effect(e) => e.name(),
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Mode> {
+        if id == "screen" { Some(Mode::Screen) } else { Effect::parse(id).map(Mode::Effect) }
+    }
+}
+
 struct Running {
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
     saved: Vec<String>,
+    mode: Mode,
 }
 
-/// The user's own zone colours from before Match Screen started, while it is running.
+/// The user's own zone colours from before a mode started, while one is running.
 pub fn saved_zones() -> Option<Vec<String>> {
     RUN.lock().unwrap().as_ref().map(|r| r.saved.clone())
 }
@@ -42,67 +80,92 @@ pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-#[tauri::command]
-pub fn get_screen_sync() -> bool {
-    active()
+/// The running mode, if any.
+pub fn mode() -> Option<Mode> {
+    RUN.lock().unwrap().as_ref().map(|r| r.mode)
 }
 
 #[tauri::command]
-pub async fn set_screen_sync(app: AppHandle, on: bool) -> Res<()> {
-    if on {
-        start(&app)
-    } else {
+pub fn get_back_mode() -> String {
+    mode().map_or("off", Mode::id).to_string()
+}
+
+/// "off", "screen" or the id of an effect.
+#[tauri::command]
+pub async fn set_back_mode(app: AppHandle, mode: String) -> Res<()> {
+    if mode == "off" {
         stop(&app, true);
-        Ok(())
+        return Ok(());
     }
+    start(&app, Mode::parse(&mode).ok_or("Unknown back light mode.")?)
 }
 
-fn start(app: &AppHandle) -> Res<()> {
+fn halt(r: &Running) {
+    r.stop.store(true, Ordering::Relaxed);
+    r.thread.thread().unpark();
+}
+
+fn start(app: &AppHandle, mode: Mode) -> Res<()> {
     let mut run = RUN.lock().unwrap();
-    if run.is_some() {
+    if run.as_ref().is_some_and(|r| r.mode == mode) {
         return Ok(());
     }
     let sh = app.state::<Shared>();
-    let (saved, has_back) = {
+    let (zones, has_back) = {
         let s = sh.snap.lock().unwrap();
         (s.zones.clone(), s.has_back)
     };
     if !has_back {
         return Err("This light has no back light.".into());
     }
-    capture::allowed()?;
-    let saved = zones_or_default(saved);
+    if mode == Mode::Screen {
+        capture::allowed()?;
+    }
+    // Switching from another mode: the snapshot holds one of its frames, so the colours to
+    // come back to are the ones that mode saved.
+    let saved = match run.take() {
+        Some(r) => {
+            halt(&r);
+            let _ = r.thread.join();
+            r.saved
+        }
+        None => zones_or_default(zones),
+    };
     let stop = Arc::new(AtomicBool::new(false));
     let (a, s, z) = (app.clone(), stop.clone(), saved.clone());
-    let thread = std::thread::Builder::new()
-        .name("screen".into())
-        .spawn(move || worker(a, s, z))
-        .map_err(|e| e.to_string())?;
-    *run = Some(Running { stop, thread, saved });
+    let thread = match std::thread::Builder::new().name("screen".into()).spawn(move || worker(a, s, z, mode)) {
+        Ok(t) => t,
+        Err(e) => {
+            // nothing is running any more: hand the colours back rather than strand a frame
+            sh.snap.lock().unwrap().zones = saved;
+            ACTIVE.store(false, Ordering::Relaxed);
+            device::publish(app);
+            let _ = app.emit("back-mode", "off");
+            return Err(e.to_string());
+        }
+    };
+    *run = Some(Running { stop, thread, saved, mode });
     ACTIVE.store(true, Ordering::Relaxed);
-    let _ = app.emit("screen-sync", true);
+    let _ = app.emit("back-mode", mode.id());
     Ok(())
 }
 
-/// Stop the worker. `restore` puts back the zones from before Match Screen started;
+/// Stop the worker. `restore` puts back the zones from before the mode started;
 /// skip it when something else (a preset) is about to set them anyway.
 pub fn stop(app: &AppHandle, restore: bool) {
     // Held to the end so a second stop or a start cannot interleave with the restore.
     // The worker never takes RUN, so joining under it cannot deadlock.
     let mut run = RUN.lock().unwrap();
     let Some(r) = run.take() else { return };
-    r.stop.store(true, Ordering::Relaxed);
-    r.thread.thread().unpark();
+    halt(&r);
     let _ = r.thread.join();
-    // Snapshot first: nothing may read a screen frame as the user's own colours.
+    // Snapshot first: nothing may read an animation frame as the user's own colours.
     app.state::<Shared>().snap.lock().unwrap().zones = r.saved.clone();
     if restore {
         let rgb: Vec<Rgb> = r.saved.iter().map(|h| parse_hex(h).unwrap_or([255; 3])).collect();
         let w = device::exec(app, move |l| {
-            for (i, c) in rgb.iter().enumerate() {
-                l.set_back_zone(i as u8 + 1, *c)?;
-            }
-            Ok(())
+            let list: Vec<(u8, Rgb)> = rgb.iter().enumerate().map(|(i, c)| (i as u8 + 1, *c)).collect();
+            l.set_back_zones(&list)
         });
         if let Err(e) = w {
             // The store still holds these zones, so a reconnect restores them.
@@ -112,94 +175,150 @@ pub fn stop(app: &AppHandle, restore: bool) {
     // Cleared only now, so manual colour edits stay blocked until the restore has been written.
     ACTIVE.store(false, Ordering::Relaxed);
     device::publish(app);
-    let _ = app.emit("screen-sync", false);
+    let _ = app.emit("back-mode", "off");
 }
 
-fn worker(app: AppHandle, stop: Arc<AtomicBool>, saved: Vec<String>) {
-    let unknown = [None; ZONES];
-    let mut sent: [Option<Rgb>; ZONES] = std::array::from_fn(|i| saved.get(i).and_then(|h| parse_hex(h)));
-    let mut smooth: Option<[[f32; 3]; ZONES]> = None;
-    let mut per_write = 40.0f32;
-    let mut grab: Option<capture::Grabber> = None;
-    let mut last = Instant::now();
-    let mut last_emit = Instant::now() - EMIT_GAP;
-    let mut emitted: Vec<String> = vec![];
-    let mut was_connected = true;
-    let mut failing = false;
-    let quiet = |msg: String, failing: &mut bool| {
-        if !*failing {
+/// Sleep unless a stop is already pending. `stop()` unparks once, and a channel wait inside
+/// the loop can swallow that wake-up, so every sleep checks the flag first.
+fn nap(stop: &AtomicBool, d: Duration) {
+    if !stop.load(Ordering::Relaxed) {
+        std::thread::park_timeout(d);
+    }
+}
+
+/// The time one fade step may account for. After a sleep between screenshots the real gap
+/// is long; stepping by all of it would turn the first frame of a fade into a jump.
+pub fn fade_dt(elapsed_ms: f32) -> f32 {
+    elapsed_ms.clamp(0.0, TICK.as_secs_f32() * 1500.0)
+}
+
+/// What has reached the light and the window, and whether writes are currently failing.
+struct Out {
+    sent: [Option<Rgb>; ZONES],
+    last_emit: Instant,
+    emitted: Vec<String>,
+    failing: bool,
+}
+
+impl Out {
+    /// Report a failure once per streak, so the user learns why nothing is happening.
+    fn fail(&mut self, app: &AppHandle, mode: Mode, msg: String) {
+        if !self.failing {
             eprintln!("[screen] {msg}");
-            // once per failure streak, so the user learns why nothing is happening
-            let _ = app.emit("notice", format!("Match Screen: {msg}"));
+            let _ = app.emit("notice", format!("{}: {msg}", mode.name()));
         }
-        *failing = true;
-    };
-    while !stop.load(Ordering::Relaxed) {
-        let t0 = Instant::now();
-        if grab.is_none() {
-            match capture::Grabber::new() {
-                Ok(g) => grab = Some(g),
+        self.failing = true;
+    }
+
+    /// Write `zones` as one frame if they moved enough, and keep the window's picture current.
+    fn show(&mut self, app: &AppHandle, mode: Mode, zones: [Rgb; ZONES]) {
+        let frame = changed(&self.sent, &zones, THRESHOLD);
+        if !frame.is_empty() {
+            let list: Vec<(u8, Rgb)> = frame.iter().map(|&i| (i as u8 + 1, zones[i])).collect();
+            match device::exec(app, move |l| l.set_back_zones(&list)) {
+                Ok(()) => {
+                    for i in frame {
+                        self.sent[i] = Some(zones[i]);
+                    }
+                    self.failing = false;
+                }
                 Err(e) => {
-                    quiet(e, &mut failing);
-                    std::thread::park_timeout(Duration::from_secs(1));
-                    continue;
+                    self.sent = [None; ZONES];
+                    self.fail(app, mode, e);
                 }
             }
         }
-        let frame = match grab.as_ref().unwrap().grab() {
-            Ok(f) => f,
-            Err(e) => {
-                quiet(e, &mut failing);
-                grab = None;
-                std::thread::park_timeout(Duration::from_millis(500));
+        let hex: Vec<String> = zones.iter().map(|c| to_hex(*c)).collect();
+        app.state::<Shared>().snap.lock().unwrap().zones = hex.clone();
+        if hex != self.emitted && self.last_emit.elapsed() >= EMIT_GAP {
+            device::publish(app);
+            self.last_emit = Instant::now();
+            self.emitted = hex;
+        }
+    }
+}
+
+fn worker(app: AppHandle, stop: Arc<AtomicBool>, saved: Vec<String>, mode: Mode) {
+    let base: [Rgb; ZONES] = std::array::from_fn(|i| saved.get(i).and_then(|h| parse_hex(h)).unwrap_or([255; 3]));
+    let mut out = Out { sent: [None; ZONES], last_emit: Instant::now() - EMIT_GAP, emitted: vec![], failing: false };
+    let started = Instant::now();
+    let mut target: Option<[[f32; 3]; ZONES]> = None;
+    let mut smooth: Option<[[f32; 3]; ZONES]> = None;
+    let mut grab: Option<capture::Grabber> = None;
+    let mut last = Instant::now();
+    let mut last_capture = Instant::now();
+    let mut last_change = Instant::now();
+    let mut was_idle = false;
+    while !stop.load(Ordering::Relaxed) {
+        let t0 = Instant::now();
+        // Nothing to light: no screenshots and no writes until that changes.
+        let (connected, back_on) = {
+            let sh = app.state::<Shared>();
+            let s = sh.snap.lock().unwrap();
+            (s.connected, s.back_on)
+        };
+        let dark = mode == Mode::Screen && capture::asleep();
+        if !connected || !back_on || dark {
+            was_idle = true;
+            // a back light that is merely switched off should pick up promptly when it comes on
+            nap(&stop, if connected && !dark { CAPTURE_GAP } else { IDLE_GAP });
+            continue;
+        }
+        if was_idle {
+            // A reconnect restores the stored zones on the light, and the picture has moved on:
+            // resend everything and start from the screen as it is now.
+            out.sent = [None; ZONES];
+            target = None;
+            smooth = None;
+            was_idle = false;
+        }
+
+        let effect = match mode {
+            Mode::Effect(e) => e,
+            Mode::Screen => {
+                let gap = if last_change.elapsed() < STILL_AFTER { CAPTURE_GAP } else { IDLE_GAP };
+                if target.is_none() || last_capture.elapsed() >= gap {
+                    if grab.is_none() {
+                        match capture::Grabber::new() {
+                            Ok(g) => grab = Some(g),
+                            Err(e) => {
+                                out.fail(&app, mode, e);
+                                nap(&stop, Duration::from_secs(1));
+                                continue;
+                            }
+                        }
+                    }
+                    let frame = match grab.as_ref().unwrap().grab() {
+                        Ok(f) => f,
+                        Err(e) => {
+                            out.fail(&app, mode, e);
+                            grab = None;
+                            nap(&stop, Duration::from_millis(500));
+                            continue;
+                        }
+                    };
+                    let next = blend(strips(&frame.px, frame.w, frame.h).map(|c| saturate(c, SATURATION)));
+                    if target.is_none_or(|t| distance(&t, &next) > MOVED) {
+                        last_change = Instant::now();
+                    }
+                    target = Some(next);
+                    last_capture = Instant::now();
+                }
+                let Some(goal) = target else { continue };
+                let dt = fade_dt(t0.duration_since(last).as_secs_f32() * 1000.0);
+                last = t0;
+                let s = step(smooth, goal, dt, TAU_MS);
+                smooth = Some(s);
+                out.show(&app, mode, order(s.map(to_rgb), MIRROR));
+                // Mid-fade the loop runs at the fade rate; once the light has arrived it sleeps
+                // until the next screenshot is due.
+                let wait = if distance(&s, &goal) >= 1.0 { TICK.saturating_sub(t0.elapsed()) } else { gap.saturating_sub(last_capture.elapsed()) };
+                nap(&stop, wait.max(Duration::from_millis(10)));
                 continue;
             }
         };
-        let captured = t0.elapsed();
-        let dt = t0.duration_since(last).as_secs_f32() * 1000.0;
-        last = t0;
-        let target = strips(&frame.px, frame.w, frame.h).map(|c| saturate(c, SATURATION));
-        let s = step(smooth, target, dt, TAU_MS);
-        smooth = Some(s);
-        let zones = order(s.map(to_rgb), MIRROR);
-
-        let connected = app.state::<Shared>().snap.lock().unwrap().connected;
-        if connected && !was_connected {
-            // A reconnect restores the stored zones on the light: resend everything.
-            sent = unknown;
-        }
-        was_connected = connected;
-        if connected {
-            let n = budget(INTERVAL.as_secs_f32() * 1000.0, captured.as_secs_f32() * 1000.0, per_write);
-            let picks = pick(&sent, &zones, THRESHOLD, n);
-            if !picks.is_empty() {
-                let list: Vec<(u8, Rgb)> = picks.iter().map(|&i| (i as u8 + 1, zones[i])).collect();
-                let w0 = Instant::now();
-                match device::exec(&app, move |l| list.iter().try_for_each(|&(z, c)| l.set_back_zone(z, c))) {
-                    Ok(()) => {
-                        let each = w0.elapsed().as_secs_f32() * 1000.0 / picks.len() as f32;
-                        per_write = per_write * 0.7 + each * 0.3;
-                        for i in picks {
-                            sent[i] = Some(zones[i]);
-                        }
-                        failing = false;
-                    }
-                    Err(e) => {
-                        sent = unknown;
-                        quiet(e, &mut failing);
-                    }
-                }
-            }
-        }
-
-        let hex: Vec<String> = zones.iter().map(|c| to_hex(*c)).collect();
-        app.state::<Shared>().snap.lock().unwrap().zones = hex.clone();
-        if hex != emitted && last_emit.elapsed() >= EMIT_GAP {
-            device::publish(&app);
-            last_emit = Instant::now();
-            emitted = hex;
-        }
-        std::thread::park_timeout(INTERVAL.saturating_sub(t0.elapsed()));
+        out.show(&app, mode, effects::frame(effect, started.elapsed().as_secs_f32(), &base));
+        nap(&stop, TICK.saturating_sub(t0.elapsed()).max(Duration::from_millis(10)));
     }
 }
 
@@ -260,18 +379,27 @@ pub fn delta(sent: Option<Rgb>, now: Rgb) -> u8 {
     sent.map_or(u8::MAX, |s| (0..3).map(|c| s[c].abs_diff(now[c])).max().unwrap_or(0))
 }
 
-/// Zones (0-based) to write this tick: moved more than `threshold`, largest change first,
-/// at most `max`.
-pub fn pick(sent: &[Option<Rgb>; ZONES], now: &[Rgb; ZONES], threshold: u8, max: usize) -> Vec<usize> {
-    let mut d: Vec<(usize, u8)> = (0..ZONES).map(|i| (i, delta(sent[i], now[i]))).filter(|&(_, d)| d > threshold).collect();
-    d.sort_by(|a, b| b.1.cmp(&a.1));
-    d.into_iter().take(max).map(|(i, _)| i).collect()
+/// Zones (0-based) to write as one frame: none until some zone has moved more than
+/// `threshold`, then every zone that differs at all, so the strip changes together.
+pub fn changed(sent: &[Option<Rgb>; ZONES], now: &[Rgb; ZONES], threshold: u8) -> Vec<usize> {
+    if (0..ZONES).all(|i| delta(sent[i], now[i]) <= threshold) {
+        return vec![];
+    }
+    (0..ZONES).filter(|&i| delta(sent[i], now[i]) > 0).collect()
 }
 
-/// How many zone writes fit in what is left of the tick after capturing (always at least one).
-pub fn budget(interval_ms: f32, spent_ms: f32, per_write_ms: f32) -> usize {
-    let left = (interval_ms - spent_ms) * 0.9;
-    ((left / per_write_ms.max(1.0)).floor().max(1.0) as usize).min(ZONES)
+/// Let each zone borrow a quarter from either neighbour, so something small moving across a
+/// strip boundary does not flip two zones back and forth.
+pub fn blend(s: [[f32; 3]; ZONES]) -> [[f32; 3]; ZONES] {
+    std::array::from_fn(|i| {
+        let (l, r) = (s[i.saturating_sub(1)], s[(i + 1).min(ZONES - 1)]);
+        std::array::from_fn(|c| 0.25 * l[c] + 0.5 * s[i][c] + 0.25 * r[c])
+    })
+}
+
+/// Largest channel difference between two sets of zones.
+pub fn distance(a: &[[f32; 3]; ZONES], b: &[[f32; 3]; ZONES]) -> f32 {
+    (0..ZONES).flat_map(|i| (0..3).map(move |c| (a[i][c] - b[i][c]).abs())).fold(0.0, f32::max)
 }
 
 // ---------------------------------------------------------------- capture
@@ -292,7 +420,7 @@ mod capture {
     use objc2::AllocAnyThread;
     use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
     use objc2_core_graphics::{
-        CGBitmapContextCreate, CGColorSpace, CGContext, CGImage, CGImageAlphaInfo, CGImageByteOrderInfo, CGMainDisplayID,
+        CGBitmapContextCreate, CGColorSpace, CGContext, CGDisplayIsAsleep, CGImage, CGImageAlphaInfo, CGImageByteOrderInfo, CGMainDisplayID,
         CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
     };
     use objc2_foundation::{NSArray, NSError};
@@ -309,6 +437,11 @@ mod capture {
     struct Handoff<T>(T);
     unsafe impl<T> Send for Handoff<T> {}
 
+    /// The main display is asleep, so there is nothing to follow.
+    pub fn asleep() -> bool {
+        CGDisplayIsAsleep(CGMainDisplayID())
+    }
+
     /// Whether Screen Recording is already granted; never prompts.
     pub fn granted() -> bool {
         CGPreflightScreenCaptureAccess()
@@ -318,7 +451,7 @@ mod capture {
         if granted() || CGRequestScreenCaptureAccess() {
             Ok(())
         } else {
-            Err("Allow Litra Beam in System Settings > Privacy & Security > Screen Recording, then quit and reopen Litra Beam.".into())
+            Err("Allow Glint in System Settings > Privacy & Security > Screen Recording, then quit and reopen Glint.".into())
         }
     }
 
@@ -392,6 +525,10 @@ mod capture {
         Err("Match Screen is only available on macOS.".into())
     }
 
+    pub fn asleep() -> bool {
+        true
+    }
+
     pub struct Grabber;
     impl Grabber {
         pub fn new() -> Res<Grabber> {
@@ -447,15 +584,21 @@ mod tests {
     #[test]
     fn smoothing_settles_in_about_three_tau() {
         let (a, b) = ([[0.0; 3]; ZONES], [[255.0; 3]; ZONES]);
-        assert_eq!(step(None, b, 100.0, TAU_MS), b);
+        assert_eq!(step(None, b, 100.0, 100.0), b);
         let mut s = a;
         for _ in 0..3 {
-            s = step(Some(s), b, 100.0, TAU_MS);
+            s = step(Some(s), b, 100.0, 100.0);
         }
         assert!(s[0][0] > 240.0 && s[0][0] < 255.0, "{}", s[0][0]);
         // tick-rate independent: one 200 ms step equals two 100 ms steps
         let one = step(Some(a), b, 200.0, TAU_MS);
         let two = step(Some(step(Some(a), b, 100.0, TAU_MS)), b, 100.0, TAU_MS);
+        // one fade step never moves the light by more than a quarter of the way, however long
+        // the loop slept before it
+        for slept in [80.0, 250.0, 1000.0, 60_000.0] {
+            assert!(step(Some(a), b, fade_dt(slept), TAU_MS)[0][0] < 255.0 / 4.0, "{slept}");
+        }
+        assert_eq!(fade_dt(40.0), 40.0);
         assert!((one[0][0] - two[0][0]).abs() < 0.01);
     }
 
@@ -468,27 +611,28 @@ mod tests {
     }
 
     #[test]
-    fn pick_largest_changes_first_and_caps() {
-        let sent = [Some([0, 0, 0]); ZONES];
-        let mut now = [[0u8; 3]; ZONES];
-        now[1] = [10, 0, 0];
-        now[4] = [0, 90, 0];
-        now[6] = [0, 0, 40];
-        now[3] = [3, 0, 0]; // under the threshold
-        assert_eq!(pick(&sent, &now, THRESHOLD, 7), vec![4, 6, 1]);
-        assert_eq!(pick(&sent, &now, THRESHOLD, 2), vec![4, 6]);
-        assert!(pick(&sent, &sent.map(|c| c.unwrap()), THRESHOLD, 7).is_empty());
+    fn changed_writes_whole_frame_or_nothing() {
+        let sent = [Some([10, 10, 10]); ZONES];
+        let mut now = [[10u8; 3]; ZONES];
+        now[1] = [12, 10, 10]; // at the threshold: not worth a write yet
+        assert!(changed(&sent, &now, THRESHOLD).is_empty());
+        now[4] = [10, 40, 10];
+        // once one zone has moved, every zone that differs goes in the same frame
+        assert_eq!(changed(&sent, &now, THRESHOLD), vec![1, 4]);
         let mut unknown = sent;
         unknown[2] = None;
-        assert_eq!(pick(&unknown, &now, THRESHOLD, 1), vec![2]);
+        assert_eq!(changed(&unknown, &[[10; 3]; ZONES], THRESHOLD), vec![2]);
     }
 
     #[test]
-    fn budget_shrinks_with_slow_writes() {
-        assert_eq!(budget(100.0, 10.0, 5.0), 7);
-        assert_eq!(budget(100.0, 10.0, 30.0), 2);
-        assert_eq!(budget(100.0, 10.0, 200.0), 1);
-        assert_eq!(budget(100.0, 150.0, 10.0), 1);
+    fn blend_softens_edges_and_keeps_flat_colour() {
+        let flat = [[90.0, 20.0, 200.0]; ZONES];
+        assert_eq!(blend(flat), flat);
+        let mut one = [[0.0; 3]; ZONES];
+        one[3] = [200.0; 3];
+        let b = blend(one);
+        assert_eq!((b[2][0], b[3][0], b[4][0], b[1][0]), (50.0, 100.0, 50.0, 0.0));
+        assert_eq!(distance(&one, &b), 100.0);
     }
 }
 

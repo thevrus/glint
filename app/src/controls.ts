@@ -97,7 +97,7 @@ export function bigSlider(opts: { label: string; glyph: string; min: number; max
 }
 
 // ---------------------------------------------------------------- vertical slider (Home style: tap toggles, drag dims)
-export interface VSlider { el: HTMLElement; set(v: number, on: boolean): void; color(c: string): void }
+export interface VSlider { el: HTMLElement; set(v: number, on: boolean): void; color(c: string, dark?: boolean): void }
 export function verticalSlider(opts: { label: string; min: number; max: number; step: number; text: (v: number) => string; onInput: (v: number) => void; onToggle: () => void }): VSlider {
   const { min, max } = opts;
   let value = min;
@@ -155,7 +155,7 @@ export function verticalSlider(opts: { label: string; min: number; max: number; 
     opts.onInput(clamp(value + d * opts.step * (e.shiftKey ? 5 : 1), min, max));
   });
   set(min, false);
-  return { el, set, color: (c) => el.style.setProperty("--tint", c) };
+  return { el, set, color: (c, dark = false) => { el.style.setProperty("--tint", c); el.classList.toggle("dark", dark); } };
 }
 
 // ---------------------------------------------------------------- thin slider with round thumb

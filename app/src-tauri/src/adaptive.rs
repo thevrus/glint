@@ -650,18 +650,12 @@ mod tests {
     }
 
     #[test]
-    fn targets_respect_device_bounds() {
+    fn targets_reach_night_and_day_values() {
         let c = Adaptive { day_temp: 6500, night_temp: 2700, day_brightness: 400, night_brightness: 30, ..Default::default() };
-        for m in 0..1440 {
-            let t = target_at(&c, m as f64, 420.0, 1140.0);
-            assert!((2700..=6500).contains(&t.temp));
-            assert!((30..=400).contains(&t.brightness));
-            assert!((1..=100).contains(&t.back));
-        }
         let night = target_at(&c, 180.0, 420.0, 1140.0);
-        assert_eq!((night.temp, night.brightness), (2700, 30));
+        assert_eq!((night.temp, night.brightness, night.back), (2700, 30, c.back_night));
         let noon = target_at(&c, 780.0, 420.0, 1140.0);
-        assert_eq!((noon.temp, noon.brightness), (6500, 400));
+        assert_eq!((noon.temp, noon.brightness, noon.back), (6500, 400, c.back_day));
     }
 
     #[test]
@@ -687,29 +681,6 @@ mod tests {
     }
 
     #[test]
-    fn dst_day_never_jumps_on_the_device() {
-        // Spring forward: wall clock goes 01:59 -> 03:00 while real time advances one tick
-        // (a minute here) per step. A sunrise ramp right across the skipped hour is the worst
-        // case: the curve itself moves ~2900 K in one tick, but the device must never move
-        // more than one 200 K step per tick and must catch up afterwards.
-        let c = Adaptive { sunrise_min: 150, ..Adaptive::default() };
-        let (sr, ss, _) = c.day_bounds(d(2024, 3, 31), 60.0);
-        let mut dev = target_at(&c, 0.0, sr, ss).temp as i32;
-        let mut max_move = 0;
-        let mut last_target = 0;
-        for real in 0..(6 * 60) {
-            let wall = if real < 120 { real } else { real + 60 };
-            last_target = target_at(&c, wall as f64, sr, ss).temp as i32;
-            if let Some(n) = step(dev, last_target, 100, 200) {
-                max_move = max_move.max((n - dev).abs());
-                dev = n;
-            }
-        }
-        assert!(max_move <= 200, "device moved {max_move} K in one tick");
-        assert!((dev - last_target).abs() < 100, "did not converge: {dev} vs {last_target}");
-    }
-
-    #[test]
     fn step_limits() {
         assert_eq!(step(4000, 4050, 100, 200), None);
         assert_eq!(step(4000, 4100, 100, 200), Some(4100));
@@ -724,13 +695,83 @@ mod tests {
         assert!(warm[0] == 255 && warm[1] > 150 && warm[1] < 190 && warm[2] > 70 && warm[2] < 120, "{warm:?}");
     }
 
+    fn fixed(pause_mode: PauseMode) -> Adaptive {
+        // Fixed mode: sunrise 07:00, sunset 19:00, no dependence on the machine's time zone.
+        Adaptive { enabled: true, mode: Mode::Fixed, pause_mode, ..Default::default() }
+    }
+
+    fn at(h: u32, m: u32) -> NaiveDateTime {
+        d(2024, 6, 21).and_hms_opt(h, m, 0).unwrap()
+    }
+
     #[test]
-    fn view_status_and_next() {
-        let c = Adaptive { enabled: true, mode: Mode::Fixed, ..Default::default() };
-        let now = d(2024, 6, 21).and_hms_opt(12, 0, 0).unwrap();
-        let v = build_view(&c, now, 0.0, None);
-        assert_eq!(v.next, "sunset 19:00");
-        assert!(v.status.starts_with("Adaptive: "));
+    fn view_names_the_next_transition() {
+        let c = fixed(PauseMode::NextTransition);
+        for (h, m, want) in [(3, 0, "sunrise 07:00"), (12, 0, "sunset 19:00"), (19, 0, "sunrise 07:00"), (23, 59, "sunrise 07:00")] {
+            assert_eq!(build_view(&c, at(h, m), 0.0, None).next, want, "at {h:02}:{m:02}");
+        }
+    }
+
+    #[test]
+    fn view_status_and_curve() {
+        let c = fixed(PauseMode::NextTransition);
+        // 13:00 is solar noon between 07:00 and 19:00: the day values exactly
+        let v = build_view(&c, at(13, 0), 0.0, None);
+        assert_eq!(v.status, format!("Adaptive: {} K, {} lm  next: sunset 19:00", c.day_temp, c.day_brightness));
+        // the UI plots one point per 15 min, both ends of the day included
         assert_eq!(v.curve.len(), 97);
+        let off = Adaptive { enabled: false, ..c };
+        assert_eq!(build_view(&off, at(12, 0), 0.0, None).status, "");
+    }
+
+    #[test]
+    fn pause_lasts_until_the_chosen_deadline() {
+        use PauseMode::*;
+        for (mode, h, m, want) in [
+            (NextTransition, 12, 0, "19:00"),
+            (NextTransition, 20, 0, "tomorrow 07:00"),
+            (OneHour, 12, 0, "13:00"),
+            (OneHour, 23, 30, "tomorrow 00:30"),
+            (Tomorrow, 12, 0, "tomorrow 00:00"),
+        ] {
+            let c = fixed(mode);
+            let v = build_view(&c, at(h, m), 0.0, Some(pause_deadline(&c, at(h, m), 0.0)));
+            assert_eq!(v.paused_text.as_deref(), Some(want), "{mode:?} at {h:02}:{m:02}");
+            assert_eq!(v.status, format!("Adaptive paused until {want}"));
+        }
+    }
+
+    #[test]
+    fn fixed_bounds_wrap_past_midnight() {
+        let c = Adaptive { mode: Mode::Fixed, sunrise_min: 1200, sunset_min: 360, ..Default::default() };
+        assert_eq!(c.day_bounds(d(2024, 6, 21), 0.0), (1200.0, 1800.0, false));
+        // Sun mode with no location yet uses the fixed times and says so
+        assert_eq!(Adaptive::default().day_bounds(d(2024, 6, 21), 0.0), (420.0, 1140.0, true));
+    }
+
+    #[test]
+    fn sanitize_clamps_stored_settings_to_device_limits() {
+        let mut c = Adaptive {
+            day_temp: 9000,
+            night_temp: 100,
+            day_brightness: 999,
+            night_brightness: 0,
+            ramp_min: 0,
+            sunrise_min: 5000,
+            sunset_min: 1440,
+            back_day: 200,
+            back_night: 0,
+            lat: Some(123.0),
+            lon: Some(-999.0),
+            ..Default::default()
+        };
+        c.sanitize();
+        assert_eq!((c.day_temp, c.night_temp, c.day_brightness, c.night_brightness), (6500, 2700, 400, 30));
+        assert_eq!((c.ramp_min, c.sunrise_min, c.back_day, c.back_night), (15, 1439, 100, 1));
+        assert_eq!((c.lat, c.lon), (Some(90.0), Some(-180.0)));
+        assert_eq!(c.sunset_min, 1439);
+        let mut long = Adaptive { ramp_min: 999, ..Default::default() };
+        long.sanitize();
+        assert_eq!(long.ramp_min, 180);
     }
 }

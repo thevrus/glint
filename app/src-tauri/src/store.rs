@@ -57,7 +57,8 @@ impl Store {
 
 pub fn parse_hex(s: &str) -> Option<[u8; 3]> {
     let s = s.trim().trim_start_matches('#');
-    if s.len() != 6 {
+    // from_str_radix alone would take a sign, so "+12345" would pass as a colour
+    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     let v = u32::from_str_radix(s, 16).ok()?;
@@ -103,4 +104,19 @@ pub fn builtins() -> Vec<Preset> {
         p("focus", "Cool Focus", "focus", true, 330, 6200, false, 30, vec!["#e8f1ff".into(); 7]),
         p("sunset", "Sunset", "sunset", true, 90, 2900, true, 70, ramp([0xd6, 0x22, 0x2e], [0xff, 0xa8, 0x3a])),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_parses_only_six_hex_digits() {
+        assert_eq!(parse_hex("#ff8a3d"), Some([0xff, 0x8a, 0x3d]));
+        assert_eq!(parse_hex(" FF8A3D "), Some([0xff, 0x8a, 0x3d]));
+        for bad in ["", "#fff", "#ff8a3d00", "gggggg", "+12345", "-12345"] {
+            assert_eq!(parse_hex(bad), None, "{bad:?}");
+        }
+        assert_eq!(parse_hex(&to_hex([1, 20, 255])), Some([1, 20, 255]));
+    }
 }

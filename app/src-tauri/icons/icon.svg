@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- body: neutral warm-grey glass -->
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9a9792"/>
+      <stop offset="1" stop-color="#5f5c58"/>
+    </linearGradient>
+    <!-- rim: bright where light enters (top left), faint where it exits -->
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.8"/>
+      <stop offset="0.4" stop-color="#fff" stop-opacity="0.12"/>
+      <stop offset="0.7" stop-color="#fff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="slab" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.14"/>
+    </linearGradient>
+    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff6e6"/>
+      <stop offset="1" stop-color="#ffcf94"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="cast" x="-20%" y="-30%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="11" flood-color="#2b2926" flood-opacity="0.42"/>
+    </filter>
+    <clipPath id="bodyClip"><rect x="100" y="100" width="824" height="824" rx="190"/></clipPath>
+    <clipPath id="slabClip"><rect x="212" y="372" width="600" height="280" rx="92"/></clipPath>
+    <clipPath id="litClip"><rect x="244" y="404" width="536" height="216" rx="62"/></clipPath>
+  </defs>
+
+  <!-- body -->
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#body)"/>
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="none" stroke="url(#rim)" stroke-width="9" clip-path="url(#bodyClip)"/>
+
+  <!-- the beam: one lit bar inside a thick clear slab -->
+  <g filter="url(#cast)">
+    <rect x="212" y="372" width="600" height="280" rx="92" fill="#85827d"/>
+  </g>
+  <rect x="212" y="372" width="600" height="280" rx="92" fill="url(#slab)"/>
+  <rect x="212" y="372" width="600" height="280" rx="92" fill="none" stroke="url(#rim)" stroke-width="8" clip-path="url(#slabClip)"/>
+
+  <rect x="244" y="404" width="536" height="216" rx="62" fill="url(#lit)"/>
+  <g clip-path="url(#litClip)">
+    <path d="M244 404 H780 V468 C620 520 404 520 244 468 Z" fill="url(#sheen)"/>
+    <rect x="244" y="404" width="536" height="216" rx="62" fill="none" stroke="#fff" stroke-opacity="0.75" stroke-width="6"/>
+  </g>
+</svg>

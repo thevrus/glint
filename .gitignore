@@ -1,0 +1,16 @@
+# Rust
+/target/
+
+# Node / Vite
+node_modules/
+/app/dist/
+
+# Tauri generated schemas
+/app/src-tauri/gen/
+
+# Compiled Swift prototype
+/litra
+
+# Tooling scratch
+.playwright-mcp/
+.DS_Store

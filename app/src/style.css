@@ -1,0 +1,324 @@
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --label: #000;
+  --label2: rgba(60, 60, 67, 0.82);
+  --sep: rgba(60, 60, 67, 0.16);
+  --fill: rgba(120, 120, 128, 0.16);
+  --fill2: rgba(120, 120, 128, 0.24);
+  --bg: #ececec;
+  --group: #fff;
+  --accent: #007aff;
+  --on-accent: #fff;
+  --green: #248a3d;
+  --red: #c20017;
+  --knob-off: rgba(60, 60, 67, 0.55);
+  --seg-on: #fff;
+  --tile: #fff;
+  --sheet: rgba(246, 246, 246, 0.82);
+  --edge: rgba(0, 0, 0, 0.1);
+  --knob-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 2.5px rgba(0, 0, 0, 0.24);
+  --r-lg: 20px;
+  --r-md: 16px;
+  --r-sm: 8px;
+  /* glass: a bright lip where light catches the top edge, a self-coloured rim, a tight contact shadow */
+  --lip: rgba(255, 255, 255, 0.85);
+  --glass: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 1px 2px -1px rgba(0, 0, 0, 0.14);
+  --thumb: 20px;
+  --out: cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --label: #fff;
+    --label2: rgba(235, 235, 245, 0.7);
+    --sep: rgba(255, 255, 255, 0.1);
+    --fill: rgba(120, 120, 128, 0.32);
+    --fill2: rgba(120, 120, 128, 0.44);
+    --bg: #1e1e1e;
+    --group: #2c2c2e;
+    --accent: #0a84ff;
+    --green: #30d158;
+    --red: #ff6961;
+    --knob-off: rgba(235, 235, 245, 0.38);
+    --seg-on: #636366;
+    --tile: #3a3a3c;
+    --sheet: rgba(40, 40, 42, 0.8);
+    --edge: rgba(255, 255, 255, 0.1);
+    --lip: rgba(255, 255, 255, 0.14);
+  }
+}
+@supports (color: AccentColor) {
+  :root { --accent: AccentColor; }
+}
+/* The raw accent is for marks (tracks, graph line). Fills that carry a label never use it, since
+   the system accent can be any hue: they are the label colour with the opposite text (black on
+   light, white on dark), 21:1 either way. Accent-coloured text is shifted toward the label colour. */
+:root { --accent-fill: #000; --on-accent: #fff; --accent-text: var(--accent); }
+@media (prefers-color-scheme: dark) { :root { --accent-fill: #fff; --on-accent: #000; } }
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root { --accent-text: color-mix(in srgb, var(--accent) 74%, #000); }
+  @media (prefers-color-scheme: dark) { :root { --accent-text: color-mix(in srgb, var(--accent) 72%, #fff); } }
+}
+/* macOS: the window is a system material, so surfaces become translucent. */
+.mac { --group: rgba(255, 255, 255, 0.5); --tile: rgba(255, 255, 255, 0.5); }
+@media (prefers-color-scheme: dark) { .mac { --group: rgba(255, 255, 255, 0.075); --tile: rgba(255, 255, 255, 0.1); } }
+.mac body { background: transparent; }
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-drag: none; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-text-size-adjust: 100%; }
+body {
+  font: 13px/1.38 var(--font);
+  color: var(--label);
+  background: var(--bg);
+  /* native controls are not selectable; text fields opt back in */
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+#drag { position: fixed; inset: 0 0 auto 0; height: 28px; z-index: 5; }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: default; }
+/* the macOS focus ring: a soft accent halo, not a hard web outline */
+:focus-visible { outline: 3px solid var(--accent); outline-color: color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
+.ic { display: inline-flex; flex: none; }
+.ic svg { display: block; }
+
+.content { height: 100vh; display: flex; flex-direction: column; gap: 10px; padding: 30px 16px 14px; max-width: 520px; margin: 0 auto; overflow: hidden; }
+header { padding: 0 4px; flex: none; }
+.titlerow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub { margin: 2px 0 0; color: var(--label2); min-height: 1.38em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gear { appearance: none; border: 0; padding: 0; background: none; flex: none; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--label2); margin-right: -4px; }
+.gear:hover { background: var(--fill); color: var(--label); }
+.gear:active { background: var(--fill2); }
+
+.hbtns { flex: none; display: flex; align-items: center; gap: 6px; }
+
+/* simple view: the Home-style default. Advanced swaps it for the preview, tabs and panel. */
+.content.simple .adv-only, .content.simple > .hero-wrap, .content.simple > .segmented, .content.simple > .panel { display: none; }
+.content:not(.simple) .simple-only { display: none; }
+.content.simple header { position: relative; padding: 0 36px; text-align: center; }
+.content.simple .titlerow { justify-content: center; }
+.content.simple .hbtns { position: absolute; top: 1px; right: 0; }
+.content.simple .sub { font-variant-numeric: tabular-nums; }
+.simple-view { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 6px 0 8px; }
+.vslider { --p: 0; --tint: #8e8e93; position: relative; flex: 1; min-height: 0; max-height: 320px; width: 128px; border-radius: 40px; background: var(--fill2); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge); overflow: hidden; touch-action: none; transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1); }
+/* while the pointer is down the slider is the pointer: no easing on the stretch */
+.vslider.drag { transition: none; }
+/* the fill never drops below the glyph, so the bulb always sits on the light's own colour */
+.vs-fill { position: absolute; inset: auto 0 0 0; height: calc(76px + var(--p) * (100% - 76px)); background: var(--tint); transition: height 0.25s var(--out), background-color 0.25s var(--out); }
+.vslider.drag .vs-fill { transition: background-color 0.25s var(--out); }
+.vslider.off .vs-fill { height: 0; }
+.vs-glyph { position: absolute; left: 0; right: 0; bottom: 23px; display: grid; place-items: center; color: rgba(0, 0, 0, 0.68); pointer-events: none; }
+.vslider.off .vs-glyph { color: var(--label2); }
+.vslider:focus-visible { outline-offset: 3px; }
+.swatches { flex: none; display: flex; align-items: center; gap: 14px; }
+.sw { appearance: none; border: 0; padding: 0; flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--c); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 0.5px rgba(0, 0, 0, 0.22); }
+.sw { transition: transform 0.1s ease-out; }
+.sw:active { transform: scale(0.94); filter: brightness(0.94); }
+/* the chosen temperature is ringed in the label colour, a cue that does not rely on hue */
+.sw[aria-pressed="true"] { outline: 2px solid var(--label); outline-offset: 3px; }
+.sw:focus-visible { outline: 3px solid var(--accent); outline-color: color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 3px; }
+.sw.back { display: grid; place-items: center; background: conic-gradient(#ff3b30, #ffcc00, #34c759, #32ade6, #5856d6, #ff2d55, #ff3b30); box-shadow: none; }
+.sw.back span { width: 30px; height: 30px; border-radius: 50%; box-shadow: 0 0 0 2px #1c1c1e; }
+
+/* grouped rows */
+.footer { margin: -4px 14px 0; font-size: 11px; line-height: 1.36; color: var(--label2); text-wrap: pretty; }
+.group { background: var(--group); border-radius: var(--r-md); box-shadow: var(--glass); overflow: hidden; }
+.row { min-height: 44px; padding: 8px 14px; display: flex; align-items: center; gap: 12px; position: relative; }
+.group .row + .row::before,
+.sheet-body .group > div + div > .row:first-child::before,
+.sheet-body .group > .row + div > .row:first-child::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--sep); }
+.row .label { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row .label small { color: var(--label2); font-size: 11px; line-height: 1.36; font-variant-numeric: tabular-nums; }
+.row .right { display: flex; align-items: center; gap: 8px; }
+.row.stack { flex-direction: column; align-items: stretch; gap: 6px; padding-top: 8px; padding-bottom: 10px; }
+.row.stack .line, .col .line { display: flex; justify-content: space-between; align-items: baseline; }
+.row.stack .label { flex-direction: row; }
+.value { color: var(--label2); font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; white-space: nowrap; }
+.none-inline { color: var(--label2); }
+
+/* hero tile */
+.hero-wrap { flex: none; height: clamp(110px, calc(100vh - 464px), 180px); }
+.hero { border-radius: var(--r-lg); background: #232120; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08); overflow: hidden; height: 100%; }
+.hero-svg { display: block; width: 100%; height: 100%; }
+.hero-panel:focus-visible, .hero-zone:focus-visible { outline: none; }
+.hero-panel:focus-visible > rect:first-child, .hero-zone:focus-visible { stroke: #fff; stroke-width: 2px; }
+
+/* switch (macOS regular: 38 x 22) */
+.switch { appearance: none; border: 0; padding: 0; width: 38px; height: 22px; border-radius: 11px; background: var(--knob-off); box-shadow: inset 0 0 0 0.5px var(--edge); position: relative; flex: none; transition: background-color 0.2s var(--out); }
+.switch .knob { position: absolute; top: 1px; left: 1px; width: 20px; height: 20px; border-radius: 10px; background: #fff; box-shadow: var(--knob-shadow); transition: transform 0.2s var(--out), width 0.2s var(--out); }
+.switch[aria-checked="true"] { background: var(--green); }
+.switch[aria-checked="true"] .knob { transform: translateX(16px); }
+.switch:active .knob { width: 23px; }
+.switch[aria-checked="true"]:active .knob { transform: translateX(13px); }
+
+/* big slider: the fill carries the light's own colour */
+.bigslider { --tint: #8e8e93; position: relative; height: 48px; border-radius: 12px; background: var(--fill2); overflow: hidden; touch-action: none; }
+.bs-fill { --p: 0; position: absolute; inset: 0 auto 0 0; width: calc(48px + var(--p) * (100% - 48px)); background: var(--tint); display: flex; align-items: center; padding-left: 13px; color: rgba(0, 0, 0, 0.68); transition: background-color 0.25s var(--out); }
+.bs-fill.on-dark { color: rgba(255, 255, 255, 0.88); }
+.bs-fill .ic { pointer-events: none; }
+
+/* thin slider */
+.thinslider, .hue { --p: 0; position: relative; height: 28px; touch-action: none; }
+/* the knob is 20px in a 28px hit box: pull the box up so the space under the knob matches the space above */
+.thinslider { margin-bottom: -2px; }
+.ts-track { position: absolute; left: 0; right: 0; top: 12px; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) calc(var(--thumb) / 2 + var(--p) * (100% - var(--thumb))), var(--fill2) 0); }
+/* tracks that show data (temperature, hue) are taller and edged so pale ends stay visible */
+.ts-track.data { top: 11px; height: 6px; border-radius: 3px; box-shadow: inset 0 0 0 0.5px var(--edge); }
+.ts-thumb { position: absolute; top: calc((28px - var(--thumb)) / 2); left: calc(var(--p) * (100% - var(--thumb))); width: var(--thumb); height: var(--thumb); border-radius: 50%; background: #fff; box-shadow: var(--knob-shadow); pointer-events: none; }
+.hue-track { background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.hue .ts-thumb { border: 2.5px solid #fff; }
+/* keyboard focus rings the knob, as AppKit does, not the slider's bounding box */
+.thinslider:focus-visible, .hue:focus-visible { outline: none; }
+.thinslider:focus-visible .ts-thumb, .hue:focus-visible .ts-thumb { outline: 3px solid var(--accent); outline-color: color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
+
+/* segmented */
+.segmented { --i: 0; position: relative; flex: none; display: grid; grid-template-columns: repeat(var(--n), 1fr); width: 100%; height: 28px; padding: 2px; border-radius: 14px; background: var(--fill); }
+.seg-ind { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--n)); border-radius: 12px; background: var(--seg-on); box-shadow: inset 0 1px 0 var(--lip), 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 2.5px rgba(0, 0, 0, 0.16); transform: translateX(calc(var(--i) * 100%)); transition: transform 0.25s var(--out); }
+.segmented button { position: relative; appearance: none; background: none; border: 0; padding: 0; font-weight: 500; border-radius: 12px; }
+/* the selected segment is marked by weight as well as by the pill */
+.segmented button[aria-checked="true"] { font-weight: 600; }
+.segmented button:active { opacity: 0.6; }
+
+/* fixed-height tab panel */
+.panel { flex: none; height: 236px; display: flex; flex-direction: column; }
+.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.panel-body > .row { flex: none; }
+/* slider rows share any spare panel height instead of leaving a band at the bottom */
+.panel-body > .row.stack { flex: 1 1 auto; justify-content: center; }
+.panel .none { margin: auto; color: var(--label2); }
+.row.combo { padding: 9px 14px; min-height: 54px; }
+.row.combo .bigslider { flex: 1; height: 36px; border-radius: 10px; }
+.row.combo .bs-fill { width: calc(36px + var(--p) * (100% - 36px)); padding-left: 8px; }
+.row.combo .bs-fill svg { width: 20px; height: 20px; }
+/* controls of a light that is off stay usable but step back */
+.panel-body > .row { transition: opacity 0.2s var(--out); }
+.panel-body.off > .row:not(:first-child) { opacity: 0.62; }
+/* Match Screen drives the zones: the picker is genuinely disabled */
+.panel-body > .row.picker-row.synced { opacity: 0.4; pointer-events: none; }
+.row.combo .value { min-width: 4ch; }
+
+/* colour picker */
+.row.picker-row { padding: 10px 14px; flex: 1; }
+.picker { width: 100%; display: grid; grid-template-columns: 1fr 112px; grid-template-rows: 84px 28px; gap: 6px 14px; }
+.sv { --hue: #f00; --x: 0; --y: 0; position: relative; border-radius: 10px; box-shadow: inset 0 0 0 0.5px var(--edge); touch-action: none; background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue)); }
+.sv-thumb { position: absolute; left: calc(var(--x) * 100%); top: calc(var(--y) * 100%); width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: var(--knob-shadow); pointer-events: none; }
+.picker .hue { grid-column: 1 / -1; }
+.picker .side { display: flex; flex-direction: column; gap: 6px; }
+.zone-label { font-weight: 600; }
+.hexrow { display: flex; align-items: center; gap: 8px; }
+.swatch { flex: none; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px var(--edge); }
+
+/* fields */
+.field { appearance: none; border: 0; background: var(--fill); border-radius: var(--r-sm); height: 28px; padding: 0 8px; text-align: right; width: 110px; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; cursor: text; }
+.field::placeholder { color: var(--label2); opacity: 1; font-style: italic; }
+.field.time { width: 96px; }
+.field.wide { width: 100%; text-align: left; height: 30px; }
+.field.hex { flex: 1; min-width: 0; width: auto; text-align: left; text-transform: lowercase; }
+.select { appearance: none; -webkit-appearance: none; border: 0; background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5.5 5 2.5 8 5.5M2 8.5l3 3 3-3'/%3E%3C/svg%3E") no-repeat right 7px center; border-radius: var(--r-sm); height: 28px; padding: 0 24px 0 9px; }
+
+/* buttons */
+.btn { appearance: none; border: 0; height: 28px; padding: 0 14px; border-radius: 14px; background: var(--fill2); font-weight: 500; white-space: nowrap; transition: background-color 0.15s var(--out); }
+.btn:active { background: var(--fill); }
+.btn.primary { background: var(--accent-fill); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+/* opacity, not brightness: a black fill cannot get darker */
+.btn.primary:active { opacity: 0.75; }
+.btn:disabled { opacity: 0.5; }
+.btn.small { height: 26px; padding: 0 10px; }
+.btn.small.on { background: var(--accent-fill); color: var(--on-accent); }
+.btn.danger { color: var(--red); display: grid; place-items: center; padding: 0 7px; }
+.link { appearance: none; background: none; border: 0; padding: 0; color: var(--accent-text); font-weight: 500; }
+.link:active { opacity: 0.6; }
+
+/* preset strip: scrolls sideways and fades out at both window edges */
+.strip { flex: none; display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding: 0 16px; margin: -2px -16px; padding: 2px 16px; -webkit-mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 28px), transparent); }
+.strip::-webkit-scrollbar { display: none; }
+.tile { appearance: none; border: 0; flex: none; width: 104px; height: 64px; padding: 9px 10px; border-radius: var(--r-md); background: var(--tile); box-shadow: var(--glass); text-align: left; display: flex; flex-direction: column; justify-content: space-between; scroll-snap-align: start; transition: background-color 0.2s var(--out), color 0.2s var(--out), transform 0.1s ease-out; }
+.tile .name { width: 100%; font-weight: 500; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile:active { background: var(--fill2); transform: scale(0.97); transition-duration: 0s, 0s, 0.1s; }
+.tile.active { background: var(--accent-fill); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.tile.active:active { opacity: 0.75; }
+.tile.add { width: 48px; align-items: center; justify-content: center; color: var(--label2); }
+.tile:focus-visible { outline-offset: -3px; }
+
+/* sheets */
+.sheet { border: 0; padding: 18px; border-radius: var(--r-lg); width: min(300px, calc(100vw - 32px)); background: var(--sheet); -webkit-backdrop-filter: blur(40px) saturate(1.8); backdrop-filter: blur(40px) saturate(1.8); color: var(--label); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 0 0 0.5px rgba(0, 0, 0, 0.22), 0 12px 28px -6px rgba(0, 0, 0, 0.32); }
+/* Sheets leave the way they arrive. An open sheet is always fully visible: the closed state
+   and @starting-style only shape the way in and out, and where they are unsupported it just appears. */
+.sheet { opacity: 0; transform: translateY(-8px) scale(0.97); transition: opacity 0.2s var(--out), transform 0.2s var(--out), overlay 0.2s allow-discrete, display 0.2s allow-discrete; }
+.sheet[open] { opacity: 1; transform: none; }
+@starting-style { .sheet[open] { opacity: 0.5; transform: translateY(-8px) scale(0.97); } }
+.sheet::backdrop { background: rgba(0, 0, 0, 0); transition: background-color 0.2s var(--out), overlay 0.2s allow-discrete, display 0.2s allow-discrete; }
+.sheet[open]::backdrop { background: rgba(0, 0, 0, 0.24); }
+@starting-style { .sheet[open]::backdrop { background: rgba(0, 0, 0, 0); } }
+.sheet h3 { margin: 0 0 12px; font-size: 13px; font-weight: 700; text-align: center; }
+.sheet .actions { display: flex; gap: 8px; margin-top: 14px; }
+.sheet .actions .btn { flex: 1; }
+
+/* starts below the title bar so the traffic lights never sit on it */
+.sheet.settings { width: min(400px, calc(100vw - 24px)); max-height: calc(100vh - 50px); margin-top: 38px; padding: 0; overflow: hidden; }
+.sheet.settings[open] { display: flex; flex-direction: column; }
+.sheet-head { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 12px; }
+.sheet-head h3 { margin: 0; font-size: 15px; text-align: left; }
+.sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px; }
+.sheet-body h4 { margin: 8px 0 -4px 14px; font-size: 13px; font-weight: 600; color: var(--label2); }
+.sheet-body h4:first-child { margin-top: 0; }
+.sheet-body .group { flex: none; background: var(--fill); border-radius: 12px; box-shadow: none; }
+.adaptive-settings { display: flex; flex-direction: column; gap: 10px; }
+
+/* notice */
+/* floats over the bottom edge so an error never pushes the layout out of the window */
+.notice { position: fixed; z-index: 6; inset: auto 16px 14px; max-width: 488px; margin: 0 auto; min-height: 64px; padding: 9px 14px; border-radius: var(--r-md); background: var(--sheet); -webkit-backdrop-filter: blur(40px) saturate(1.8); backdrop-filter: blur(40px) saturate(1.8); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 6px 16px -6px rgba(0, 0, 0, 0.3); display: flex; gap: 12px; align-items: center; justify-content: space-between; color: var(--red); font-weight: 500; }
+.notice .text { flex: 1; min-width: 0; overflow-wrap: break-word; }
+
+/* adaptive tab */
+.row.graphrow { padding: 8px 14px 0; min-height: 0; }
+.graph { width: 100%; height: 92px; display: block; overflow: visible; }
+.g-area { fill: var(--fill); }
+.g-line { stroke: var(--accent); stroke-width: 2; }
+.g-base { stroke: var(--sep); stroke-width: 1; fill: none; }
+.g-now { stroke: var(--label); stroke-width: 1; opacity: 0.4; }
+.g-dot { fill: #fff; stroke: var(--accent); stroke-width: 2; }
+.g-tick { fill: var(--label2); font-size: 10px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.graph.off .g-line, .graph.off .g-dot { stroke: var(--label2); }
+.graph.off .g-now { opacity: 0.2; }
+.row.pair { gap: 18px; align-items: center; padding-top: 0; }
+.panel-body > .row.pair { flex: 1 1 auto; }
+.row.pair::before { content: none !important; }
+.col { flex: 1; min-width: 0; }
+.col .line { margin-bottom: 4px; }
+
+/* empty state */
+.empty { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 44px 32px 32px; gap: 8px; }
+.empty .big { color: var(--label2); opacity: 0.7; margin-bottom: 6px; }
+.empty h2 { margin: 0; font-size: 20px; line-height: 1.2; font-weight: 700; }
+.empty p { margin: 0; max-width: 30ch; color: var(--label2); text-wrap: balance; }
+.empty .reason { font-size: 11px; color: var(--red); max-width: 36ch; }
+.empty .btn { margin-top: 12px; padding: 0 18px; }
+
+/* like every Mac window, accent-coloured controls go quiet when the window is not key */
+.inactive .switch[aria-checked="true"] { background: var(--fill2); }
+.inactive .btn.primary, .inactive .btn.small.on, .inactive .tile.active { background: var(--fill2); color: var(--label); }
+.inactive .ts-track:not(.data) { background: linear-gradient(to right, var(--label2) calc(var(--thumb) / 2 + var(--p) * (100% - var(--thumb))), var(--fill2) 0); }
+.inactive .g-line, .inactive .g-dot { stroke: var(--label2); }
+.inactive .link { color: var(--label2); }
+
+/* System Settings > Accessibility > Display: Increase contrast, Reduce transparency */
+@media (prefers-contrast: more) {
+  :root, .mac { --label2: rgba(0, 0, 0, 0.82); --sep: rgba(0, 0, 0, 0.45); --edge: rgba(0, 0, 0, 0.5); --group: #fff; --tile: #fff; --fill: rgba(0, 0, 0, 0.1); --fill2: rgba(0, 0, 0, 0.2); --knob-off: rgba(0, 0, 0, 0.6); }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root, .mac { --label2: rgba(255, 255, 255, 0.86); --sep: rgba(255, 255, 255, 0.45); --edge: rgba(255, 255, 255, 0.5); --group: #1c1c1e; --tile: #1c1c1e; --fill: rgba(255, 255, 255, 0.14); --fill2: rgba(255, 255, 255, 0.26); --knob-off: rgba(255, 255, 255, 0.55); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --sheet: #f4f4f5; }
+  .sheet, .notice { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) { :root { --sheet: #2a2a2c; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

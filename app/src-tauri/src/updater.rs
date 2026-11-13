@@ -20,10 +20,6 @@ enum State {
 
 static STATE: Mutex<State> = Mutex::new(State::Idle);
 
-fn state() -> State {
-    STATE.lock().unwrap().clone()
-}
-
 fn set(app: &AppHandle, s: State) {
     *STATE.lock().unwrap() = s;
     crate::tray::refresh(app);
@@ -31,7 +27,7 @@ fn set(app: &AppHandle, s: State) {
 
 /// Label and enabled flag for the tray item.
 pub fn menu_item() -> (String, bool) {
-    match state() {
+    match STATE.lock().unwrap().clone() {
         State::Idle => ("Check for Updates…".into(), true),
         State::Checking => ("Checking for Updates…".into(), false),
         State::UpToDate => ("Glint is Up to Date".into(), true),
@@ -57,22 +53,39 @@ pub fn toggle_auto(app: &AppHandle) {
 
 /// Check, and with `install` also download, verify, replace the app and restart.
 async fn run(app: &AppHandle, install: bool) -> tauri_plugin_updater::Result<State> {
-    let Some(update) = app.updater()?.check().await? else {
+    // The timeout covers the check only; without it a stalled connection would leave the
+    // menu item on "Checking" for good.
+    let updater = app.updater_builder().timeout(Duration::from_secs(30)).build()?;
+    let Some(update) = updater.check().await? else {
         return Ok(State::UpToDate);
     };
     if !install {
         return Ok(State::Available(update.version));
     }
-    set(app, State::Installing(update.version.clone()));
     update.download_and_install(|_, _| {}, || {}).await?;
     app.restart()
 }
 
+/// Claim the updater for one run: `Some(install)` if it was free, `None` if a check or an
+/// install is already going. Only a click may start an install.
+fn begin(app: &AppHandle, manual: bool) -> Option<bool> {
+    let install = {
+        let mut s = STATE.lock().unwrap();
+        let (next, install) = match &*s {
+            State::Checking | State::Installing(_) => return None,
+            State::Available(v) if manual => (State::Installing(v.clone()), true),
+            State::Available(_) => return None,
+            _ => (State::Checking, false),
+        };
+        *s = next;
+        install
+    };
+    crate::tray::refresh(app);
+    Some(install)
+}
+
 /// `manual` checks report "up to date" and failures in the menu; background ones stay quiet.
 async fn check(app: AppHandle, install: bool, manual: bool) {
-    if !install {
-        set(&app, State::Checking);
-    }
     let next = match run(&app, install).await {
         Ok(State::UpToDate) if !manual => State::Idle,
         Ok(s) => s,
@@ -86,12 +99,9 @@ async fn check(app: AppHandle, install: bool, manual: bool) {
 
 /// The tray item was clicked.
 pub fn clicked(app: &AppHandle) {
-    let install = match state() {
-        State::Checking | State::Installing(_) => return,
-        State::Available(_) => true,
-        _ => false,
-    };
-    tauri::async_runtime::spawn(check(app.clone(), install, true));
+    if let Some(install) = begin(app, true) {
+        tauri::async_runtime::spawn(check(app.clone(), install, true));
+    }
 }
 
 pub fn spawn(app: AppHandle) {
@@ -102,7 +112,7 @@ pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(15));
         loop {
-            if auto(&app) && matches!(state(), State::Idle | State::UpToDate | State::Failed) {
+            if auto(&app) && begin(&app, false).is_some() {
                 tauri::async_runtime::block_on(check(app.clone(), false, false));
             }
             std::thread::sleep(Duration::from_secs(24 * 60 * 60));

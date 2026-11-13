@@ -45,7 +45,7 @@ brew install --cask glint
 
 Or download the DMG from the [latest release](https://github.com/thevrus/glint/releases/latest) and drag Glint to Applications. The app is not notarized by Apple yet, so the first time you open a downloaded copy macOS blocks it: go to System Settings > Privacy & Security and click **Open Anyway**. The Homebrew install skips that step.
 
-Needs macOS 14 or later, Apple silicon or Intel. Glint updates itself: when a new version is out, the menu bar menu shows **Install Glint x.y.z and Restart**.
+Needs macOS 14 or later, Apple silicon or Intel. Glint updates itself: when a new version is out, the menu bar menu shows **Install Glint x.y.z and Restart**. Until the app is signed with a Developer ID, macOS asks for Screen Recording permission again after each update if you use Match Screen.
 
 Then connect the light by USB, or pair it in System Settings > Bluetooth, quit G HUB if it is running, and open the app.
 

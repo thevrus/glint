@@ -13,19 +13,18 @@ jobs:
   release:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Tag must match the app version
         run: |
@@ -50,7 +49,7 @@ jobs:
             if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
           done
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -63,7 +62,7 @@ jobs:
 
       - name: Point the Homebrew cask at this release
         run: |
-          sha=$(shasum -a 256 target/universal-apple-darwin/release/bundle/dmg/*.dmg | cut -d' ' -f1)
+          sha=$(shasum -a 256 "target/universal-apple-darwin/release/bundle/dmg/Glint_${GITHUB_REF_NAME#v}_universal.dmg" | cut -d' ' -f1)
           git fetch origin main
           git checkout -f -B main origin/main
           sed -i '' -E "s/^  version \".*\"/  version \"${GITHUB_REF_NAME#v}\"/; s/^  sha256 \".*\"/  sha256 \"$sha\"/" Casks/glint.rb

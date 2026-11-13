@@ -9,13 +9,13 @@ cask "glint" do
   homepage "https://github.com/thevrus/glint"
 
   auto_updates true
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Glint.app"
 
   # The app is not notarized yet, so Gatekeeper would refuse to open the quarantined copy.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Glint.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Glint.app"]
   end
 
   zap trash: "~/Library/Application Support/dev.glint.desktop"

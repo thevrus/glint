@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Glint",
-  "version": "0.1.0",
   "identifier": "dev.glint.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -24,7 +23,12 @@
         "transparent": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "windowEffects": { "effects": ["sidebar"], "state": "active" }
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "active"
+        }
       }
     ],
     "security": {
@@ -33,8 +37,29 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "macOS": { "minimumSystemVersion": "14.0" },
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "signingIdentity": "-"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDRjlGOEE5QjkwRTk4RkYKUldUL21BNjVxZmo1Yko4aE9RZk9sMU03cGxOd0JyTlRyUGJrelMyVE0xQ0hPQzN6L21WNEtSRXIK",
+      "endpoints": [
+        "https://github.com/thevrus/glint/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

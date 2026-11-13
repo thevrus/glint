@@ -31,6 +31,44 @@ function arrowStep(el: HTMLElement, step: number, move: (delta: number) => void)
   });
 }
 
+/** What the horizontal sliders share: the value, the eased set, pointer and arrow-key input.
+ *  `paint` shows a 0..1 fraction; `track` gives the usable run inside the element as [left inset, width]. */
+function range(
+  el: HTMLElement,
+  o: { min: number; max: number; step?: number; onInput: (v: number) => void },
+  paint: (p: number) => void,
+  track: (r: DOMRect) => [number, number],
+): (v: number, animate?: boolean) => void {
+  const { min, max } = o;
+  const step = o.step ?? 1;
+  let value = min;
+  let cancel = () => {};
+  const show = (v: number) => paint((v - min) / (max - min));
+  const set = (v: number, animate = false) => {
+    v = clamp(v, min, max);
+    // the backend echoes every write: easing to the value already shown would only restart the tween
+    if (animate && v === value) return;
+    el.setAttribute("aria-valuenow", String(Math.round(v)));
+    cancel();
+    if (animate) {
+      const from = value;
+      cancel = tween(280, (t) => show(from + (v - from) * t));
+    } else show(v);
+    value = v;
+  };
+  const commit = (v: number) => {
+    set(v);
+    o.onInput(v);
+  };
+  dragTrack(el, (e, r) => {
+    const [x0, w] = track(r);
+    const p = clamp((e.clientX - r.left - x0) / w, 0, 1);
+    commit(clamp(Math.round((min + p * (max - min)) / step) * step, min, max));
+  });
+  arrowStep(el, step, (d) => commit(clamp(value + d, min, max)));
+  return set;
+}
+
 // ---------------------------------------------------------------- switch (38 x 22)
 export interface Switch { el: HTMLButtonElement; set(on: boolean): void; get(): boolean }
 export function toggle(label: string, onChange: (on: boolean) => void): Switch {
@@ -51,35 +89,10 @@ export function toggle(label: string, onChange: (on: boolean) => void): Switch {
 export interface BigSlider { el: HTMLElement; set(v: number, animate?: boolean): void; color(c: string, dark?: boolean): void }
 export function bigSlider(opts: { label: string; glyph: string; min: number; max: number; step?: number; onInput: (v: number) => void }): BigSlider {
   const { min, max } = opts;
-  const step = opts.step ?? 1;
-  let value = min;
-  let cancel = () => {};
   const fill = h("div", { class: "bs-fill" }, icon(opts.glyph, 22));
   const el = h("div", { class: "bigslider", role: "slider", tabindex: "0", "aria-label": opts.label, "aria-valuemin": min, "aria-valuemax": max, "aria-valuenow": min }, fill);
-  const paint = (v: number) => {
-    fill.style.setProperty("--p", String((v - min) / (max - min)));
-  };
-  const set = (v: number, animate = false) => {
-    v = clamp(v, min, max);
-    el.setAttribute("aria-valuenow", String(Math.round(v)));
-    cancel();
-    if (animate) {
-      const from = value;
-      cancel = tween(280, (t) => paint(from + (v - from) * t));
-    } else paint(v);
-    value = v;
-  };
-  const fromX = (x: number, r: DOMRect) => {
-    const k = r.height; // fill never shrinks below the glyph
-    const p = clamp((x - r.left - k) / (r.width - k), 0, 1); // the fill edge lands under the pointer
-    return clamp(Math.round((min + p * (max - min)) / step) * step, min, max);
-  };
-  const commit = (v: number) => {
-    set(v);
-    opts.onInput(v);
-  };
-  dragTrack(el, (e, r) => commit(fromX(e.clientX, r)));
-  arrowStep(el, step, (d) => commit(clamp(value + d, min, max)));
+  // the fill never shrinks below the glyph (a square of the slider's height), so its edge lands under the pointer
+  const set = range(el, opts, (p) => fill.style.setProperty("--p", String(p)), (r) => [r.height, r.width - r.height]);
   return { el, set, color: (c, dark = false) => { el.style.setProperty("--tint", c); fill.classList.toggle("on-dark", dark); } };
 }
 
@@ -102,18 +115,17 @@ export function verticalSlider(opts: { label: string; min: number; max: number; 
     el.style.setProperty("--p", String((value - min) / (max - min)));
   };
   // Past either end the slider stretches a little and resists, instead of stopping dead.
-  const stretch = (over: number) => {
-    const hgt = el.clientHeight;
+  const stretch = (over: number, hgt: number) => {
     const r = (Math.abs(over) * hgt * 0.12) / (hgt + 0.12 * Math.abs(over));
     el.style.transformOrigin = over > 0 ? "50% 100%" : "50% 0%";
     el.style.transform = over ? `scaleY(${1 + r / hgt})` : "";
   };
   // The drag is relative to where it started, so touching the slider never makes the light jump.
-  let start: { y: number; v: number; moved: boolean } | null = null;
+  let start: { y: number; v: number; h: number; moved: boolean } | null = null;
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     el.setPointerCapture(e.pointerId);
-    start = { y: e.clientY, v: value, moved: false };
+    start = { y: e.clientY, v: value, h: el.clientHeight, moved: false };
   });
   el.addEventListener("pointermove", (e) => {
     if (!start) return;
@@ -121,9 +133,9 @@ export function verticalSlider(opts: { label: string; min: number; max: number; 
     if (!start.moved && Math.abs(dy) < 4) return;
     start.moved = true;
     el.classList.add("drag");
-    const raw = start.v + (dy / el.clientHeight) * (max - min);
+    const raw = start.v + (dy / start.h) * (max - min);
     const v = clamp(Math.round(raw), min, max);
-    stretch(((raw - v) / (max - min)) * el.clientHeight);
+    stretch(((raw - v) / (max - min)) * start.h, start.h);
     opts.onInput(v);
   });
   el.addEventListener("pointerup", () => {
@@ -150,34 +162,11 @@ export function verticalSlider(opts: { label: string; min: number; max: number; 
 export interface ThinSlider { el: HTMLElement; set(v: number, animate?: boolean): void }
 export function thinSlider(opts: { label: string; min: number; max: number; step?: number; gradient?: string; onInput: (v: number) => void }): ThinSlider {
   const { min, max } = opts;
-  const step = opts.step ?? 1;
-  let value = min;
-  let cancel = () => {};
   const thumb = h("div", { class: "ts-thumb" });
   const track = h("div", { class: "ts-track" + (opts.gradient ? " data" : "") });
   if (opts.gradient) track.style.background = opts.gradient;
   const el = h("div", { class: "thinslider", role: "slider", tabindex: "0", "aria-label": opts.label, "aria-valuemin": min, "aria-valuemax": max, "aria-valuenow": min }, track, thumb);
-  const paint = (v: number) => el.style.setProperty("--p", String((v - min) / (max - min)));
-  const set = (v: number, animate = false) => {
-    v = clamp(v, min, max);
-    el.setAttribute("aria-valuenow", String(Math.round(v)));
-    cancel();
-    if (animate) {
-      const from = value;
-      cancel = tween(280, (t) => paint(from + (v - from) * t));
-    } else paint(v);
-    value = v;
-  };
-  const fromX = (x: number, r: DOMRect) => {
-    const p = clamp((x - r.left - THUMB / 2) / (r.width - THUMB), 0, 1);
-    return clamp(Math.round((min + p * (max - min)) / step) * step, min, max);
-  };
-  const commit = (v: number) => {
-    set(v);
-    opts.onInput(v);
-  };
-  dragTrack(el, (e, r) => commit(fromX(e.clientX, r)));
-  arrowStep(el, step, (d) => commit(clamp(value + d, min, max)));
+  const set = range(el, opts, (p) => el.style.setProperty("--p", String(p)), (r) => [THUMB / 2, r.width - THUMB]);
   return { el, set };
 }
 

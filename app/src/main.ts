@@ -5,7 +5,7 @@ import { createAdaptive } from "./adaptive-ui";
 import { css, kelvinGradient, kelvinRgb, mix, hexToRgb, type RGB } from "./color";
 import { h, icon } from "./dom";
 import { createHero } from "./hero";
-import { row, stack, unit, value } from "./ui";
+import { row, setPressed, stack, unit, value } from "./ui";
 
 document.documentElement.classList.toggle("mac", /Mac/.test(navigator.userAgent));
 
@@ -29,7 +29,8 @@ const notify = (m: string) => {
   noticeText.textContent = m;
   notice.hidden = false;
   window.clearTimeout(noticeTimer);
-  noticeTimer = window.setTimeout(() => (notice.hidden = true), 9000);
+  // a long message stays until dismissed: nine seconds is not enough to read it
+  if (m.length <= 140) noticeTimer = window.setTimeout(() => (notice.hidden = true), 9000);
 };
 setErrorHandler(notify);
 
@@ -41,34 +42,35 @@ const hero = createHero(
 const heroState = () => ({
   on: !!st?.frontOn, brightness: st?.brightness ?? 52, temperature: st?.temperature ?? 4400,
   hasBack: !!st?.hasBack, backOn: !!st?.backOn, backBrightness: st?.backBrightness ?? 50,
-  zones: st?.zones ?? [], selected: all ? 0 : zone,
+  zones: st?.zones ?? [], selected: matching ? -1 : all ? 0 : zone,
 });
 const redraw = (instant = false) => hero.update(heroState(), instant);
 
 // ---------------------------------------------------------------- light tab
-const frontPower = toggle("Front light", (on) => { touch("front"); if (st) st.frontOn = on; redraw(); paintFills(); void call("set_front_power", { on }); });
+// One writer per front-light property, shared by the simple and advanced views: local state,
+// every control that shows it, the picture, then the device.
+function setFront(on: boolean) { touch("front"); if (st) st.frontOn = on; frontPower.set(on); redraw(); paintFills(); void call("set_front_power", { on }); }
+function setBack(on: boolean) { touch("backOn"); if (st) st.backOn = on; backPower.set(on); redraw(); paintFills(); void call("set_back_power", { on }); }
+function setBright(lm: number) { touch("bright"); wake("front"); if (st) st.brightness = lm; bright.set(lm); brightVal.textContent = unit(lm, "lm"); redraw(true); paintFills(); sendBright(lm); }
+/** `tap`: a swatch was chosen, so the light wakes and the picture eases; a drag tracks exactly. */
+function setTemp(k: number, tap = false) { touch("temp"); if (tap) wake("front"); if (st) st.temperature = k; temp.set(k); tempVal.textContent = unit(k, "K"); redraw(!tap); paintFills(); sendTemp(k); }
+const frontPower = toggle("Front light", setFront);
 // Dragging a brightness slider while that light is off turns it on, as Control Center does.
 function wake(side: "front" | "back") {
   if (!st) return;
-  if (side === "front" && !st.frontOn) { touch("front"); st.frontOn = true; frontPower.set(true); void call("set_front_power", { on: true }); }
-  if (side === "back" && !st.backOn) { touch("backOn"); st.backOn = true; backPower.set(true); void call("set_back_power", { on: true }); }
+  if (side === "front" && !st.frontOn) setFront(true);
+  if (side === "back" && !st.backOn) setBack(true);
 }
 const brightVal = value();
 const sendBright = throttled((lm: number) => call("set_front_brightness", { lm }), 60);
-const bright = bigSlider({
-  label: "Front brightness", glyph: "sun", min: 30, max: 400,
-  onInput: (lm) => { touch("bright"); wake("front"); if (st) st.brightness = lm; brightVal.textContent = unit(lm, "lm"); redraw(true); paintFills(); sendBright(lm); },
-});
+const bright = bigSlider({ label: "Front brightness", glyph: "sun", min: 30, max: 400, onInput: setBright });
 const tempVal = value();
 const sendTemp = throttled((kelvin: number) => call("set_temperature", { kelvin }), 60);
-const temp = thinSlider({
-  label: "Colour temperature", min: 2700, max: 6500, step: 50, gradient: kelvinGradient(),
-  onInput: (k) => { touch("temp"); if (st) st.temperature = k; tempVal.textContent = unit(k, "K"); redraw(true); paintFills(); sendTemp(k); },
-});
+const temp = thinSlider({ label: "Colour temperature", min: 2700, max: 6500, step: 50, gradient: kelvinGradient(), onInput: (k) => setTemp(k) });
 const lightBody = h("div", { class: "panel-body" }, row("Front light", frontPower.el), stack("Brightness", brightVal, bright.el), stack("Temperature", tempVal, temp.el));
 
 // ---------------------------------------------------------------- back tab
-const backPower = toggle("Back light", (on) => { touch("backOn"); if (st) st.backOn = on; redraw(); paintFills(); void call("set_back_power", { on }); });
+const backPower = toggle("Back light", setBack);
 const backVal = value();
 const sendBackB = throttled((pct: number) => call("set_back_brightness", { pct }), 60);
 const backBright = bigSlider({
@@ -89,17 +91,22 @@ const allBtn = h("button", { type: "button", class: "btn small", "aria-pressed":
 picker.side.prepend(zoneLabel);
 picker.side.append(allBtn);
 function syncZone() {
-  zoneLabel.textContent = all ? "All zones" : `Zone ${zone}`;
-  allBtn.setAttribute("aria-pressed", String(all));
-  allBtn.classList.toggle("on", all);
-  picker.set(st?.zones[Math.max(0, all ? 0 : zone - 1)] ?? "#ffffff");
+  zoneLabel.textContent = matching ? "Screen" : all ? "All zones" : `Zone ${zone}`;
+  setPressed(allBtn, all);
+  // while the screen drives the zones the dimmed picker holds its colour instead of flickering along
+  if (!matching) picker.set(st?.zones[Math.max(0, all ? 0 : zone - 1)] ?? "#ffffff");
 }
 // Match Screen: the back light follows the display; the picker steps aside meanwhile.
 let matching = false;
-const matchBtn = h("button", { type: "button", class: "btn small", "aria-pressed": "false", text: "Match Screen", onClick: async () => {
+let matchBusy = false;
+const matchBtn = h("button", { type: "button", class: "btn small", "aria-pressed": "false", title: "Back light follows the colours on your screen", text: "Match Screen", onClick: async () => {
+  // the first run can wait behind the Screen Recording prompt: no second toggle meanwhile
+  if (matchBusy) return;
+  matchBusy = true;
   const on = !matching;
   // a unit Ok arrives as null; call() gives undefined only on failure (and shows the notice)
   const ok = (await call("set_screen_sync", { on })) !== undefined;
+  matchBusy = false;
   if (ok || !on) setMatching(on);
   if (ok && on) wake("back");
 } });
@@ -107,9 +114,10 @@ const pickerRow = h("div", { class: "row picker-row" }, picker.el);
 function setMatching(on: boolean) {
   matching = on;
   if (on) delete touched.zones;
-  matchBtn.setAttribute("aria-pressed", String(on));
-  matchBtn.classList.toggle("on", on);
+  setPressed(matchBtn, on);
   pickerRow.classList.toggle("synced", on);
+  syncZone();
+  redraw();
 }
 const frag = (...n: Node[]) => { const f = document.createDocumentFragment(); f.append(...n); return f; };
 const noBack = h("p", { class: "none", text: "This light has no back light." });
@@ -145,20 +153,13 @@ paintTab();
 
 // ---------------------------------------------------------------- simple view
 // One tall slider (tap for power, drag for brightness) and a row of colour temperatures.
-const setBright = (lm: number) => { touch("bright"); wake("front"); if (st) st.brightness = lm; bright.set(lm); brightVal.textContent = unit(lm, "lm"); redraw(true); paintFills(); sendBright(lm); };
 const simpleBright = verticalSlider({
   label: "Front light", min: 30, max: 400, step: 10, text: (v) => unit(v, "lm"), onInput: setBright,
-  onToggle: () => {
-    if (!st) return;
-    const on = !st.frontOn;
-    touch("front"); st.frontOn = on; frontPower.set(on); redraw(); paintFills(); void call("set_front_power", { on });
-  },
+  onToggle: () => { if (st) setFront(!st.frontOn); },
 });
 const TEMPS = [6500, 5500, 4400, 3400, 2700];
 const tempSwatches = TEMPS.map((k) => {
-  const b = h("button", { type: "button", class: "sw", title: unit(k, "K"), "aria-label": `${k} kelvin`, "aria-pressed": "false", onClick: () => {
-    touch("temp"); wake("front"); if (st) st.temperature = k; temp.set(k); tempVal.textContent = unit(k, "K"); redraw(); paintFills(); sendTemp(k);
-  } });
+  const b = h("button", { type: "button", class: "sw", title: unit(k, "K"), "aria-label": `${k} kelvin`, "aria-pressed": "false", onClick: () => setTemp(k, true) });
   b.style.setProperty("--c", css(kelvinRgb(k)));
   return b;
 });
@@ -200,8 +201,9 @@ function applyLocal(p: Preset) {
   if (!st) return;
   Object.assign(st, { frontOn: p.frontOn, brightness: p.brightness, temperature: p.temperature });
   if (st.hasBack) Object.assign(st, { backOn: p.backOn, backBrightness: p.backBrightness, zones: p.zones.slice() });
-  for (const k of ["front", "bright", "temp", "backOn", "backB", "zones"]) touched[k] = performance.now();
+  // paint first: stamping the keys as touched is what makes paintControls skip them
   paintControls(true);
+  for (const k of ["front", "bright", "temp", "backOn", "backB", "zones"]) touched[k] = performance.now();
 }
 
 function paintPresets() {
@@ -231,7 +233,9 @@ function paintManage() {
       h("button", { type: "button", class: "btn small danger", "aria-label": `Delete ${p.name}`, onClick: () => void call("delete_preset", { id: p.id }) }, icon("trash", 16))));
   }
 }
-const gearSheet = h("dialog", { class: "sheet settings" }) as HTMLDialogElement;
+const gearSheet = h("dialog", { class: "sheet settings", tabindex: "-1" }) as HTMLDialogElement;
+// Focus lands on the sheet itself, not its first button: a Mac sheet shows no focus ring until Tab is pressed.
+const openSettings = () => { gearSheet.showModal(); gearSheet.focus(); };
 gearSheet.append(
   h("div", { class: "sheet-head" }, h("h3", { text: "Settings" }), h("button", { type: "button", class: "btn primary", text: "Done", onClick: () => gearSheet.close() })),
   h("div", { class: "sheet-body" },
@@ -242,7 +246,7 @@ gearSheet.append(
 let downOnBackdrop = false;
 gearSheet.addEventListener("pointerdown", (e) => { downOnBackdrop = e.target === gearSheet; });
 gearSheet.addEventListener("click", (e) => { if (e.target === gearSheet && downOnBackdrop) gearSheet.close(); });
-const gear = h("button", { type: "button", class: "gear adv-only", "aria-label": "Settings", title: "Settings", onClick: () => gearSheet.showModal() }, icon("more", 20));
+const gear = h("button", { type: "button", class: "gear adv-only", "aria-label": "Settings", title: "Settings", onClick: openSettings }, icon("more", 20));
 const advBtn = h("button", { type: "button", class: "gear simple-only", "aria-label": "Advanced controls", title: "Advanced", onClick: () => { setView(false); doneBtn.focus(); } }, icon("slider", 20));
 const doneBtn = h("button", { type: "button", class: "btn small adv-only", text: "Done", onClick: () => { setView(true); advBtn.focus(); } });
 
@@ -277,16 +281,18 @@ function avgZones(): RGB {
 function paintFills() {
   const grey: RGB = [142, 142, 147];
   const dark = (c: RGB) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] < 120;
-  const back = st?.backOn ? mix(avgZones(), [255, 255, 255], 0.15) : grey;
-  bright.color(css(st?.frontOn ? kelvinRgb(st.temperature) : grey));
+  const avg = avgZones();
+  const back = st?.backOn ? mix(avg, [255, 255, 255], 0.15) : grey;
+  const front = css(st ? kelvinRgb(st.temperature) : grey);
+  bright.color(st?.frontOn ? front : css(grey));
   backBright.color(css(back), dark(back));
   lightBody.classList.toggle("off", !st?.frontOn);
   if (st) {
     simpleBright.set(st.brightness, st.frontOn);
-    simpleBright.color(css(kelvinRgb(st.temperature)));
+    simpleBright.color(front);
     tempSwatches.forEach((b, i) => b.setAttribute("aria-pressed", String(Math.abs(st!.temperature - TEMPS[i]) <= 100)));
     backSwatch.hidden = !st.hasBack;
-    backDot.style.background = css(avgZones());
+    backDot.style.background = css(avg);
     if (simple) paintSub();
   }
   backBody.classList.toggle("off", !st?.backOn);
@@ -298,7 +304,7 @@ function paintControls(animate: boolean) {
   if (fresh("temp")) { temp.set(st.temperature, animate); tempVal.textContent = unit(st.temperature, "K"); }
   if (fresh("backOn")) backPower.set(st.backOn);
   if (fresh("backB")) { backBright.set(st.backBrightness, animate); backVal.textContent = `${st.backBrightness}%`; }
-  if (fresh("zones") || matching) syncZone();
+  if (fresh("zones") && !matching) syncZone();
   paintFills();
   redraw();
 }
@@ -306,6 +312,12 @@ let firstPaint = true;
 function render(next: State) {
   const keep = st;
   st = { ...next };
+  // never show a value the controls cannot represent
+  const lim = (v: number, a: number, b: number) => Math.min(b, Math.max(a, Number.isFinite(v) ? v : a));
+  st.brightness = lim(st.brightness, 30, 400);
+  st.temperature = lim(st.temperature, 2700, 6500);
+  st.backBrightness = lim(st.backBrightness, 1, 100);
+  if (st.zones.length && st.zones.length !== 7) st.zones = Array.from({ length: 7 }, (_, i) => st!.zones[i] ?? "#ffffff");
   if (keep) {
     if (!fresh("front")) st.frontOn = keep.frontOn;
     if (!fresh("bright")) st.brightness = keep.brightness;
@@ -319,6 +331,7 @@ function render(next: State) {
   emptyDetail.textContent = st.error ?? "";
   emptyDetail.hidden = !st.error;
   title.textContent = (st.model || "Litra Beam").replace(" (Bluetooth)", "");
+  title.title = title.textContent;
   paintSub();
   paintTab();
   paintControls(!firstPaint);
@@ -360,8 +373,8 @@ if (boot) {
     on<string>("notice", notify),
     on<boolean>("screen-sync", setMatching),
   ]);
-  const [s0, p0, a0] = await Promise.all([call<State>("get_state"), call<Preset[]>("list_presets"), call<AdaptiveView>("get_adaptive")]);
-  setMatching(!!(await call<boolean>("get_screen_sync")));
+  const [s0, p0, a0, sync] = await Promise.all([call<State>("get_state"), call<Preset[]>("list_presets"), call<AdaptiveView>("get_adaptive"), call<boolean>("get_screen_sync")]);
+  setMatching(!!sync);
   presets = p0 ?? [];
   paintPresets();
   // also covers anything emitted between the injected snapshot and the listeners going live
@@ -377,5 +390,5 @@ window.addEventListener("focus", () => document.documentElement.classList.remove
 window.addEventListener("contextmenu", (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
 // Command-comma opens Settings.
 window.addEventListener("keydown", (e) => {
-  if (e.metaKey && e.key === "," && !gearSheet.open && !nameSheet.open && st?.connected) { e.preventDefault(); gearSheet.showModal(); }
+  if (e.metaKey && e.key === "," && !gearSheet.open && !nameSheet.open && st?.connected) { e.preventDefault(); openSettings(); }
 });

@@ -11,6 +11,12 @@ export function stack(label: string, value: HTMLElement | null, control: Node): 
   return h("div", { class: "row stack" }, h("div", { class: "line" }, h("span", { class: "label", text: label }), value), control);
 }
 
+/** A toggle button's pressed state, for assistive tech and for the filled style. */
+export const setPressed = (b: HTMLElement, on: boolean) => {
+  b.setAttribute("aria-pressed", String(on));
+  b.classList.toggle("on", on);
+};
+
 export const value = () => h("span", { class: "value" });
 
 /** "250 lm": a number and its unit, joined so they never wrap apart. */

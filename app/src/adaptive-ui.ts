@@ -2,8 +2,7 @@ import { call, type AdaptiveSettings, type AdaptiveView } from "./api";
 import { h, s } from "./dom";
 import { segmented, thinSlider, toggle } from "./controls";
 import { kelvinGradient } from "./color";
-import { unit } from "./ui";
-import { row, stack, value } from "./ui";
+import { row, stack, unit, value } from "./ui";
 
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`;
 const parse = (t: string) => {
@@ -69,7 +68,8 @@ export function createAdaptive(): { tab: HTMLElement; settings: HTMLElement; upd
     nowLine.setAttribute("x1", String(nx));
     nowLine.setAttribute("x2", String(nx));
     nowDot.setAttribute("cx", String(nx));
-    nowDot.setAttribute("cy", String(tN(pts[Math.min(pts.length - 1, Math.round(v.nowMin / 15))][1])));
+    nowDot.setAttribute("visibility", pts.length ? "visible" : "hidden");
+    if (pts.length) nowDot.setAttribute("cy", String(tN(pts[Math.min(pts.length - 1, Math.round(v.nowMin / 15))][1])));
   };
   draw();
   new ResizeObserver(([e]) => {
@@ -175,9 +175,10 @@ export function createAdaptive(): { tab: HTMLElement; settings: HTMLElement; upd
         sync(cur);
       }
       const c = cur ?? v.settings;
-      const [event, at] = v.next.split(" ");
+      const [event = "", at] = v.next.split(" ");
+      const next = event ? ` · ${event[0].toUpperCase()}${event.slice(1)}${at ? ` at ${at}` : ""}` : "";
       status.textContent = v.pausedText ? `Paused until ${v.pausedText}`
-        : c.enabled ? `${unit(v.targetTemp, "K")}, ${unit(v.targetBrightness, "lm")} · ${event[0].toUpperCase()}${event.slice(1)} at ${at}`
+        : c.enabled ? `${unit(v.targetTemp, "K")}, ${unit(v.targetBrightness, "lm")}${next}`
         : "Off";
       resume.hidden = !v.pausedText;
       hint.hidden = !(c.mode === "sun" && v.fallback);

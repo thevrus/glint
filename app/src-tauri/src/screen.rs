@@ -3,7 +3,7 @@
 //! strips, smooths them over time and writes only the zones that moved. Each zone is one
 //! HID round trip, so the loop measures its writes and sends fewer when they run long.
 use crate::device::{self, Shared};
-use crate::store::{default_zones, parse_hex, to_hex};
+use crate::store::{parse_hex, to_hex, zones_or_default, ZONES};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -13,7 +13,6 @@ use tauri::{AppHandle, Emitter, Manager};
 /// The light faces the wall, so seen from the desk its zones may run the other way.
 /// false: left of the screen drives zone 1. Flip if colours land on the wrong side.
 const MIRROR: bool = false;
-const ZONES: usize = 7;
 const INTERVAL: Duration = Duration::from_millis(100);
 /// Smoothing time constant: a hard cut settles in about three of these (~300 ms).
 const TAU_MS: f32 = 100.0;
@@ -72,7 +71,7 @@ fn start(app: &AppHandle) -> Res<()> {
         return Err("This light has no back light.".into());
     }
     capture::allowed()?;
-    let saved = if saved.len() == ZONES { saved } else { default_zones() };
+    let saved = zones_or_default(saved);
     let stop = Arc::new(AtomicBool::new(false));
     let (a, s, z) = (app.clone(), stop.clone(), saved.clone());
     let thread = std::thread::Builder::new()
@@ -316,7 +315,7 @@ mod capture {
     }
 
     pub fn allowed() -> Res<()> {
-        if CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() {
+        if granted() || CGRequestScreenCaptureAccess() {
             Ok(())
         } else {
             Err("Allow Litra Beam in System Settings > Privacy & Security > Screen Recording, then quit and reopen Litra Beam.".into())

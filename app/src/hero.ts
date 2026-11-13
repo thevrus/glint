@@ -9,7 +9,7 @@ export interface HeroState {
   backOn: boolean;
   backBrightness: number;
   zones: string[];
-  /** 1..7 selects one zone, 0 selects all */
+  /** 1..7 selects one zone, 0 selects all, -1 none */
   selected: number;
 }
 
@@ -96,6 +96,7 @@ export function createHero(onZone: (zone: number) => void, onPanel: () => void):
   let v: V = { panel: OFF_PANEL, lit: 0, segs: Array(7).fill(DARK), rake: Array(7).fill(0), selX: segX(0), selW: SEG_W, selOn: 0 };
   let cancel = () => {};
   let goal = "";
+  let ring = { x: segX(0), w: SEG_W };
   const render = () => {
     panelFill.setAttribute("fill", css(v.panel));
     litLayers.setAttribute("opacity", String(0.25 + 0.75 * v.lit));
@@ -123,10 +124,12 @@ export function createHero(onZone: (zone: number) => void, onPanel: () => void):
         lit,
         segs: [],
         rake: [],
-        selX: st.selected === 0 ? segX(0) : segX(st.selected - 1),
-        selW: st.selected === 0 ? segX(6) + SEG_W - segX(0) : SEG_W,
-        selOn: st.hasBack ? 1 : 0,
+        // with nothing selected the ring fades out where it stands
+        selX: st.selected < 0 ? ring.x : st.selected === 0 ? segX(0) : segX(st.selected - 1),
+        selW: st.selected < 0 ? ring.w : st.selected === 0 ? segX(6) + SEG_W - segX(0) : SEG_W,
+        selOn: st.hasBack && st.selected >= 0 ? 1 : 0,
       };
+      ring = { x: target.selX, w: target.selW };
       const bi = Math.min(1, st.backBrightness / 100);
       for (let i = 0; i < 7; i++) {
         const z = hexToRgb(st.zones[i] ?? "#ffffff");
@@ -145,7 +148,7 @@ export function createHero(onZone: (zone: number) => void, onPanel: () => void):
       if (instant) { cancel = () => {}; v = target; render(); return; }
       const from = v;
       const L = (a: number, b: number, t: number) => a + (b - a) * t;
-      cancel = tween(320, (t) => {
+      cancel = tween(250, (t) => {
         v = {
           panel: mix(from.panel, target.panel, t),
           lit: L(from.lit, target.lit, t),

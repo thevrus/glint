@@ -9,7 +9,6 @@
   --bg: #ececec;
   --group: #fff;
   --accent: #007aff;
-  --on-accent: #fff;
   --green: #248a3d;
   --red: #c20017;
   --knob-off: rgba(60, 60, 67, 0.55);
@@ -104,20 +103,20 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .content.simple .hbtns { position: absolute; top: 1px; right: 0; }
 .content.simple .sub { font-variant-numeric: tabular-nums; }
 .simple-view { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 6px 0 8px; }
-.vslider { --p: 0; --tint: #8e8e93; position: relative; flex: 1; min-height: 0; max-height: 320px; width: 128px; border-radius: 40px; background: var(--fill2); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge); overflow: hidden; touch-action: none; transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1); }
+.vslider { --p: 0; --tint: #8e8e93; position: relative; flex: 1; min-height: 0; max-height: 320px; width: 128px; border-radius: 40px; background: var(--fill2); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge); overflow: hidden; touch-action: none; transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
 /* while the pointer is down the slider is the pointer: no easing on the stretch */
 .vslider.drag { transition: none; }
 /* the fill never drops below the glyph, so the bulb always sits on the light's own colour */
-.vs-fill { position: absolute; inset: auto 0 0 0; height: calc(76px + var(--p) * (100% - 76px)); background: var(--tint); transition: height 0.25s var(--out), background-color 0.25s var(--out); }
+.vs-fill { position: absolute; inset: 0; transform: translateY(calc((1 - var(--p)) * (100% - 76px))); background: var(--tint); transition: transform 0.25s var(--out), background-color 0.25s var(--out); }
 .vslider.drag .vs-fill { transition: background-color 0.25s var(--out); }
-.vslider.off .vs-fill { height: 0; }
+.vslider.off .vs-fill { transform: translateY(100%); }
 .vs-glyph { position: absolute; left: 0; right: 0; bottom: 23px; display: grid; place-items: center; color: rgba(0, 0, 0, 0.68); pointer-events: none; }
 .vslider.off .vs-glyph { color: var(--label2); }
 .vslider:focus-visible { outline-offset: 3px; }
 .swatches { flex: none; display: flex; align-items: center; gap: 14px; }
 .sw { appearance: none; border: 0; padding: 0; flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--c); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 0.5px rgba(0, 0, 0, 0.22); }
-.sw { transition: transform 0.1s ease-out; }
-.sw:active { transform: scale(0.94); filter: brightness(0.94); }
+.sw { transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1); }
+.sw:active { transform: scale(0.97); filter: brightness(0.94); transition-duration: 0s; }
 /* the chosen temperature is ringed in the label colour, a cue that does not rely on hue */
 .sw[aria-pressed="true"] { outline: 2px solid var(--label); outline-offset: 3px; }
 .sw:focus-visible { outline: 3px solid var(--accent); outline-color: color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 3px; }
@@ -131,7 +130,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .group .row + .row::before,
 .sheet-body .group > div + div > .row:first-child::before,
 .sheet-body .group > .row + div > .row:first-child::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--sep); }
-.row .label { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row .label { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
 .row .label small { color: var(--label2); font-size: 11px; line-height: 1.36; font-variant-numeric: tabular-nums; }
 .row .right { display: flex; align-items: center; gap: 8px; }
 .row.stack { flex-direction: column; align-items: stretch; gap: 6px; padding-top: 8px; padding-bottom: 10px; }
@@ -156,8 +155,9 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .switch[aria-checked="true"]:active .knob { transform: translateX(13px); }
 
 /* big slider: the fill carries the light's own colour */
-.bigslider { --tint: #8e8e93; position: relative; height: 48px; border-radius: 12px; background: var(--fill2); overflow: hidden; touch-action: none; }
-.bs-fill { --p: 0; position: absolute; inset: 0 auto 0 0; width: calc(48px + var(--p) * (100% - 48px)); background: var(--tint); display: flex; align-items: center; padding-left: 13px; color: rgba(0, 0, 0, 0.68); transition: background-color 0.25s var(--out); }
+/* --min is the slider's height and the least the fill shows: a square that holds the glyph */
+.bigslider { --tint: #8e8e93; --min: 48px; position: relative; height: var(--min); border-radius: 12px; background: var(--fill2); overflow: hidden; touch-action: none; }
+.bs-fill { --p: 0; position: absolute; inset: 0 auto 0 0; width: calc(var(--min) + var(--p) * (100% - var(--min))); background: var(--tint); display: flex; align-items: center; padding-left: 13px; color: rgba(0, 0, 0, 0.68); transition: background-color 0.25s var(--out); }
 .bs-fill.on-dark { color: rgba(255, 255, 255, 0.88); }
 .bs-fill .ic { pointer-events: none; }
 
@@ -191,8 +191,8 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .panel-body > .row.stack { flex: 1 1 auto; justify-content: center; }
 .panel .none { margin: auto; color: var(--label2); }
 .row.combo { padding: 9px 14px; min-height: 54px; }
-.row.combo .bigslider { flex: 1; height: 36px; border-radius: 10px; }
-.row.combo .bs-fill { width: calc(36px + var(--p) * (100% - 36px)); padding-left: 8px; }
+.row.combo .bigslider { --min: 36px; flex: 1; border-radius: 10px; }
+.row.combo .bs-fill { padding-left: 8px; }
 .row.combo .bs-fill svg { width: 20px; height: 20px; }
 /* controls of a light that is off stay usable but step back */
 .panel-body > .row { transition: opacity 0.2s var(--out); }
@@ -214,7 +214,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 
 /* fields */
 .field { appearance: none; border: 0; background: var(--fill); border-radius: var(--r-sm); height: 28px; padding: 0 8px; text-align: right; width: 110px; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; cursor: text; }
-.field::placeholder { color: var(--label2); opacity: 1; font-style: italic; }
+.field::placeholder { color: var(--label2); opacity: 0.7; }
 .field.time { width: 96px; }
 .field.wide { width: 100%; text-align: left; height: 30px; }
 .field.hex { flex: 1; min-width: 0; width: auto; text-align: left; text-transform: lowercase; }
@@ -250,6 +250,8 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
    and @starting-style only shape the way in and out, and where they are unsupported it just appears. */
 .sheet { opacity: 0; transform: translateY(-8px) scale(0.97); transition: opacity 0.2s var(--out), transform 0.2s var(--out), overlay 0.2s allow-discrete, display 0.2s allow-discrete; }
 .sheet[open] { opacity: 1; transform: none; }
+/* the sheet takes the focus when it opens; the ring belongs to its controls */
+.sheet:focus { outline: none; }
 @starting-style { .sheet[open] { opacity: 0.5; transform: translateY(-8px) scale(0.97); } }
 .sheet::backdrop { background: rgba(0, 0, 0, 0); transition: background-color 0.2s var(--out), overlay 0.2s allow-discrete, display 0.2s allow-discrete; }
 .sheet[open]::backdrop { background: rgba(0, 0, 0, 0.24); }
@@ -272,7 +274,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 /* notice */
 /* floats over the bottom edge so an error never pushes the layout out of the window */
 .notice { position: fixed; z-index: 6; inset: auto 16px 14px; max-width: 488px; margin: 0 auto; min-height: 64px; padding: 9px 14px; border-radius: var(--r-md); background: var(--sheet); -webkit-backdrop-filter: blur(40px) saturate(1.8); backdrop-filter: blur(40px) saturate(1.8); box-shadow: inset 0 1px 0 var(--lip), inset 0 0 0 0.5px var(--edge), 0 6px 16px -6px rgba(0, 0, 0, 0.3); display: flex; gap: 12px; align-items: center; justify-content: space-between; color: var(--red); font-weight: 500; }
-.notice .text { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.notice .text { flex: 1; min-width: 0; max-height: min(40vh, 220px); overflow-y: auto; overflow-wrap: anywhere; white-space: pre-line; }
 
 /* adaptive tab */
 .row.graphrow { padding: 8px 14px 0; min-height: 0; }
@@ -296,7 +298,7 @@ h1 { margin: 0; min-width: 0; font-size: 26px; line-height: 1.15; font-weight: 7
 .empty .big { color: var(--label2); opacity: 0.7; margin-bottom: 6px; }
 .empty h2 { margin: 0; font-size: 20px; line-height: 1.2; font-weight: 700; }
 .empty p { margin: 0; max-width: 30ch; color: var(--label2); text-wrap: balance; }
-.empty .reason { font-size: 11px; color: var(--red); max-width: 36ch; }
+.empty .reason { font-size: 11px; color: var(--red); max-width: 36ch; max-height: 8.5em; overflow-y: auto; overflow-wrap: anywhere; white-space: pre-line; -webkit-user-select: text; user-select: text; cursor: text; }
 .empty .btn { margin-top: 12px; padding: 0 18px; }
 
 /* like every Mac window, accent-coloured controls go quiet when the window is not key */

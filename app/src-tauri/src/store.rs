@@ -27,6 +27,8 @@ pub struct Config {
     pub zones: Option<Vec<String>>,
     pub presets: Vec<Preset>,
     pub adaptive: Adaptive,
+    /// Inverted so that a config written before updates existed still checks.
+    pub skip_update_check: bool,
 }
 
 pub struct Store {
@@ -69,14 +71,22 @@ pub fn to_hex(c: [u8; 3]) -> String {
     format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])
 }
 
+/// Zones on the back light.
+pub const ZONES: usize = 7;
+
 pub fn default_zones() -> Vec<String> {
-    vec!["#ffffff".to_string(); 7]
+    vec!["#ffffff".to_string(); ZONES]
+}
+
+/// A zone list of the wrong length is not trusted: start again from white.
+pub fn zones_or_default(zones: Vec<String>) -> Vec<String> {
+    if zones.len() == ZONES { zones } else { default_zones() }
 }
 
 fn ramp(from: [u8; 3], to: [u8; 3]) -> Vec<String> {
-    (0..7)
+    (0..ZONES)
         .map(|i| {
-            let t = i as f32 / 6.0;
+            let t = i as f32 / (ZONES - 1) as f32;
             let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
             to_hex([m(from[0], to[0]), m(from[1], to[1]), m(from[2], to[2])])
         })
@@ -97,11 +107,11 @@ pub fn builtins() -> Vec<Preset> {
         zones,
     };
     vec![
-        p("daylight", "Daylight", "sun", true, 240, 5600, false, 30, vec!["#fff4e8".into(); 7]),
-        p("warm", "Warm", "bulb", true, 160, 3200, false, 30, vec!["#ffb46b".into(); 7]),
+        p("daylight", "Daylight", "sun", true, 240, 5600, false, 30, vec!["#fff4e8".into(); ZONES]),
+        p("warm", "Warm", "bulb", true, 160, 3200, false, 30, vec!["#ffb46b".into(); ZONES]),
         p("evening", "Soft Evening", "moon", true, 70, 2700, true, 25, ramp([0xff, 0x8a, 0x3d], [0xff, 0xc2, 0x7a])),
-        p("call", "Video Call", "video", true, 280, 4800, true, 35, vec!["#ffe6cc".into(); 7]),
-        p("focus", "Cool Focus", "focus", true, 330, 6200, false, 30, vec!["#e8f1ff".into(); 7]),
+        p("call", "Video Call", "video", true, 280, 4800, true, 35, vec!["#ffe6cc".into(); ZONES]),
+        p("focus", "Cool Focus", "focus", true, 330, 6200, false, 30, vec!["#e8f1ff".into(); ZONES]),
         p("sunset", "Sunset", "sunset", true, 90, 2900, true, 70, ramp([0xd6, 0x22, 0x2e], [0xff, 0xa8, 0x3a])),
     ]
 }

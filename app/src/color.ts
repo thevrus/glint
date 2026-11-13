@@ -13,7 +13,10 @@ export function kelvinRgb(k: number): RGB {
 export const kelvinGradient = () => `linear-gradient(to right, ${[2700, 3400, 4100, 4800, 5500, 6500].map((k) => css(kelvinRgb(k))).join(", ")})`;
 
 export const hexToRgb = (h: string): RGB => {
-  const v = parseInt(h.replace("#", "").padEnd(6, "0").slice(0, 6), 16);
+  let x = h.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(x)) x = x.replace(/./g, "$&$&");
+  // anything that is not a colour reads as white, never as a wrong colour
+  const v = /^[0-9a-f]{6}$/i.test(x) ? parseInt(x, 16) : 0xffffff;
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 };
 export const rgbToHex = (c: RGB) => "#" + c.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("");
@@ -36,7 +39,7 @@ export function rgbToHsv([r, g, b]: RGB): [number, number, number] {
 }
 
 export const prefersReducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-export const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+export const ease = (t: number) => 1 - Math.pow(1 - t, 4);
 
 /** Animate a number tween; returns cancel. Instant under reduced motion. */
 export function tween(ms: number, step: (t: number) => void, done?: () => void): () => void {

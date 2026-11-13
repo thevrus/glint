@@ -482,10 +482,10 @@ fn apply(app: &AppHandle, cfg: &Adaptive, v: &View, last_min: Option<f64>) {
         if !crate::screen::active() && tint.is_none_or(|t| (t as i32 - temp_now as i32).abs() >= 150) {
             let rgb = kelvin_rgb(temp_now as f64);
             let hex = to_hex(rgb);
-            match device::run(app, move |l| l.set_back_color(rgb), |s| s.zones = vec![hex.clone(); 7]) {
+            match device::run(app, move |l| l.set_back_color(rgb), |s| s.zones = vec![hex.clone(); crate::store::ZONES]) {
                 Ok(_) => {
                     sh.adaptive.lock().unwrap().tint_temp = Some(temp_now);
-                    device::save_zones(app, vec![hex.clone(); 7]);
+                    device::save_zones(app, vec![hex.clone(); crate::store::ZONES]);
                     log.push(format!("back tint {hex}"));
                 }
                 Err(e) => fail(e),

@@ -32,20 +32,20 @@ I wanted to turn the light on before a call, pick a colour for the back, and hav
 - **Menu bar.** Toggle lights and apply presets without opening a window.
 - **CLI.** One `glint` binary for scripts and shortcuts.
 
-It reconnects on its own after sleep or a dropped Bluetooth link, and it makes no network requests.
+It reconnects on its own after sleep or a dropped Bluetooth link. The only network request it makes is a daily check for a new version on GitHub, which you can turn off in the menu bar.
 
 ## Install
 
-There are no prebuilt downloads yet. Building takes a few minutes and needs [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 20+ and the Xcode Command Line Tools (`xcode-select --install`).
+With [Homebrew](https://brew.sh):
 
 ```sh
-git clone https://github.com/thevrus/glint.git
-cd glint/app
-npm install
-npm run tauri build
+brew tap thevrus/glint https://github.com/thevrus/glint
+brew install --cask glint
 ```
 
-Drag `target/release/bundle/macos/Glint.app` to Applications.
+Or download the DMG from the [latest release](https://github.com/thevrus/glint/releases/latest) and drag Glint to Applications. The app is not notarized by Apple yet, so the first time you open a downloaded copy macOS blocks it: go to System Settings > Privacy & Security and click **Open Anyway**. The Homebrew install skips that step.
+
+Needs macOS 14 or later, Apple silicon or Intel. Glint updates itself: when a new version is out, the menu bar menu shows **Install Glint x.y.z and Restart**.
 
 Then connect the light by USB, or pair it in System Settings > Bluetooth, quit G HUB if it is running, and open the app.
 
@@ -87,11 +87,15 @@ macOS only for now. The code is Tauri and hidapi, so Windows and Linux may build
 <details>
 <summary><b>Development</b></summary>
 
+Needs [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 20+ and the Xcode Command Line Tools (`xcode-select --install`).
+
 ```sh
 cd app
 npm install
 npm run tauri dev
 ```
+
+To release, set `version` in `app/src-tauri/Cargo.toml`, commit, then push a matching tag (`git tag v0.2.0 && git push origin main v0.2.0`). The release workflow builds the universal DMG, publishes the signed update, and bumps `Casks/glint.rb`.
 
 | Path | What |
 | --- | --- |

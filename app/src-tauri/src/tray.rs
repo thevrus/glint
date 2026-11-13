@@ -16,7 +16,7 @@ pub fn all_presets(app: &AppHandle) -> Vec<Preset> {
     p
 }
 
-fn menu(app: &AppHandle, s: &Snapshot, status: &str, adaptive_on: bool, presets: &[Preset]) -> tauri::Result<Menu<tauri::Wry>> {
+fn menu(app: &AppHandle, s: &Snapshot, status: &str, adaptive_on: bool, presets: &[Preset], update: &(String, bool), auto_update: bool) -> tauri::Result<Menu<tauri::Wry>> {
     let mut items: Vec<Box<dyn IsMenuItem<tauri::Wry>>> = vec![];
     if !s.connected {
         items.push(Box::new(MenuItem::with_id(app, "info", "Light not connected", false, None::<&str>)?));
@@ -39,6 +39,10 @@ fn menu(app: &AppHandle, s: &Snapshot, status: &str, adaptive_on: bool, presets:
     }
     items.push(Box::new(PredefinedMenuItem::separator(app)?));
     items.push(Box::new(MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?));
+    items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    items.push(Box::new(MenuItem::with_id(app, "update", &update.0, update.1, None::<&str>)?));
+    items.push(Box::new(CheckMenuItem::with_id(app, "update-auto", "Check for Updates Automatically", true, auto_update, None::<&str>)?));
+    items.push(Box::new(PredefinedMenuItem::separator(app)?));
     items.push(Box::new(MenuItem::with_id(app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))?));
     let refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items.iter().map(|i| i.as_ref()).collect();
     Menu::with_items(app, &refs)
@@ -57,6 +61,10 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
                 crate::show_window(&app);
             } else if id == "quit" {
                 app.exit(0);
+            } else if id == "update" {
+                crate::updater::clicked(&app);
+            } else if id == "update-auto" {
+                crate::updater::toggle_auto(&app);
             } else {
                 std::thread::spawn(move || crate::tray_action(&app, &id));
             }
@@ -65,7 +73,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     {
         b = b.icon_as_template(true);
     }
-    let m = menu(app, &Snapshot::default(), "", false, &builtins())?;
+    let m = menu(app, &Snapshot::default(), "", false, &builtins(), &crate::updater::menu_item(), crate::updater::auto(app))?;
     b = b.menu(&m);
     b.build(app)?;
     Ok(())
@@ -80,8 +88,10 @@ pub fn refresh(app: &AppHandle) {
         (rt.view.status.clone(), rt.view.settings.enabled)
     };
     let presets = all_presets(app);
+    let update = crate::updater::menu_item();
+    let auto_update = crate::updater::auto(app);
     let sig = format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
         s.connected,
         s.has_back,
         s.front_on,
@@ -89,7 +99,8 @@ pub fn refresh(app: &AppHandle) {
         on,
         status,
         presets.iter().map(|p| format!("{}={}", p.id, p.name)).collect::<Vec<_>>().join(","),
-        ""
+        update.0,
+        auto_update
     );
     {
         let mut last = LAST_SIG.lock().unwrap();
@@ -100,7 +111,7 @@ pub fn refresh(app: &AppHandle) {
     }
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if let (Some(tray), Ok(m)) = (app2.tray_by_id(ID), menu(&app2, &s, &status, on, &presets)) {
+        if let (Some(tray), Ok(m)) = (app2.tray_by_id(ID), menu(&app2, &s, &status, on, &presets, &update, auto_update)) {
             let _ = tray.set_menu(Some(m));
         }
     });

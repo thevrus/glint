@@ -1,0 +1,74 @@
+# Push a tag like v0.2.0 (matching the version in app/src-tauri/Cargo.toml) to publish:
+# a universal DMG, the signed updater bundle with latest.json, and the Homebrew cask bump.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tag must match the app version
+        run: |
+          v=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "glint-app").version')
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag is $GITHUB_REF_NAME but Cargo.toml says $v"; exit 1; }
+
+      - run: npm ci
+        working-directory: app
+
+      # Without these secrets the app is ad-hoc signed (tauri.conf.json). Add them once there
+      # is a Developer ID certificate and the build is signed and notarized instead.
+      - name: Use Developer ID when configured
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          done
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: Glint __VERSION__
+          args: --target universal-apple-darwin
+
+      - name: Point the Homebrew cask at this release
+        run: |
+          sha=$(shasum -a 256 target/universal-apple-darwin/release/bundle/dmg/*.dmg | cut -d' ' -f1)
+          git fetch origin main
+          git checkout -f -B main origin/main
+          sed -i '' -E "s/^  version \".*\"/  version \"${GITHUB_REF_NAME#v}\"/; s/^  sha256 \".*\"/  sha256 \"$sha\"/" Casks/glint.rb
+          git diff --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Homebrew cask $GITHUB_REF_NAME"
+          git push origin main

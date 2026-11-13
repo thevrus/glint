@@ -3,7 +3,7 @@
 //! command thread ever touches the device directly. The same thread polls for
 //! plug/unplug, sleep/wake and out-of-range, and re-discovers with backoff.
 use crate::adaptive;
-use crate::store::{default_zones, parse_hex, Store};
+use crate::store::{default_zones, parse_hex, Store, ZONES};
 use glint_core::{Error, HidApi, Light};
 use serde::Serialize;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -207,7 +207,7 @@ fn poll(app: &AppHandle, api: &mut HidApi, dev: &mut Dev, misses: &mut u32, poll
                         *sh.snap.lock().unwrap() = s;
                         publish(app);
                         if l.info.has_back {
-                            for (i, hex) in restore.iter().flatten().enumerate().take(7) {
+                            for (i, hex) in restore.iter().flatten().enumerate().take(ZONES) {
                                 let Some(rgb) = parse_hex(hex) else { continue };
                                 if let Err(e) = l.set_back_zone(i as u8 + 1, rgb) {
                                     *misses += 1;
@@ -277,10 +277,8 @@ fn poll(app: &AppHandle, api: &mut HidApi, dev: &mut Dev, misses: &mut u32, poll
                 dev.light = None;
                 *misses = 0;
                 mark_disconnected(app, None);
-                Duration::from_secs(2)
-            } else {
-                Duration::from_secs(2)
             }
+            Duration::from_secs(2)
         }
     }
 }

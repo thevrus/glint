@@ -5,6 +5,7 @@ mod device;
 mod screen;
 mod store;
 mod tray;
+mod updater;
 
 use device::{run, Msg, Shared, Snapshot};
 use std::sync::mpsc;
@@ -47,7 +48,7 @@ fn notice(app: &AppHandle, msg: String) {
 }
 
 fn hex7(zones: &[String]) -> Vec<[u8; 3]> {
-    (0..7).map(|i| zones.get(i).and_then(|h| parse_hex(h)).unwrap_or([255, 255, 255])).collect()
+    (0..store::ZONES).map(|i| zones.get(i).and_then(|h| parse_hex(h)).unwrap_or([255, 255, 255])).collect()
 }
 
 // ---------------------------------------------------------------- commands
@@ -98,12 +99,9 @@ async fn set_back_zone(app: AppHandle, zone: u8, color: String) -> Res<()> {
     let rgb = parse_hex(&color).ok_or("Not a valid colour.")?;
     let hex = to_hex(rgb);
     adaptive::manual(&app);
-    let mut zones = app.state::<Shared>().snap.lock().unwrap().zones.clone();
-    if zones.len() != 7 {
-        zones = store::default_zones();
-    }
+    let mut zones = store::zones_or_default(app.state::<Shared>().snap.lock().unwrap().zones.clone());
     run(&app, move |l| l.set_back_zone(zone, rgb), |s| {
-        if (1..=7).contains(&zone) {
+        if (1..=store::ZONES as u8).contains(&zone) {
             zones[zone as usize - 1] = hex;
         }
         s.zones = zones.clone();
@@ -118,7 +116,7 @@ async fn set_back_all(app: AppHandle, color: String) -> Res<()> {
     let hex = to_hex(rgb);
     adaptive::manual(&app);
     run(&app, move |l| l.set_back_color(rgb), |s| {
-        s.zones = vec![hex.clone(); 7];
+        s.zones = vec![hex.clone(); store::ZONES];
         device::save_zones(&app, s.zones.clone());
     })
 }
@@ -197,7 +195,7 @@ fn save_preset(app: AppHandle, name: String) -> Res<Preset> {
         temperature: s.temperature,
         back_on: s.back_on,
         back_brightness: s.back_brightness,
-        zones: if s.zones.len() == 7 { s.zones } else { store::default_zones() },
+        zones: store::zones_or_default(s.zones),
     };
     {
         let mut st = sh.store.lock().unwrap();
@@ -258,11 +256,6 @@ fn adaptive_resume(app: AppHandle) {
 }
 
 #[tauri::command]
-fn debug_log(msg: String) {
-    eprintln!("[debug] {msg}");
-}
-
-#[tauri::command]
 fn window_ready(connected: bool) {
     let since_show = SHOW_T0.lock().unwrap().map(|t| t.elapsed().as_millis());
     let since_start = START.get().map(|t| t.elapsed().as_millis());
@@ -296,6 +289,7 @@ pub fn tray_action(app: &AppHandle, id: &str) {
 fn main() {
     START.get_or_init(Instant::now);
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_state,
             set_front_power,
@@ -315,7 +309,6 @@ fn main() {
             set_adaptive,
             adaptive_resume,
             window_ready,
-            debug_log,
             screen::set_screen_sync,
             screen::get_screen_sync
         ])
@@ -347,6 +340,7 @@ fn main() {
             tray::init(&handle)?;
             device::spawn(handle.clone(), rx);
             adaptive::spawn(handle.clone(), arx);
+            updater::spawn(handle.clone());
             show_window(&handle);
             Ok(())
         })
@@ -363,8 +357,6 @@ fn main() {
             screen::stop(app, true);
             app.state::<Shared>().store.lock().unwrap().save()
         }
-        _ => {
-            let _ = app;
-        }
+        _ => {}
     });
 }

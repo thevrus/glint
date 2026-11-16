@@ -1,7 +1,7 @@
 # version and sha256 are rewritten by .github/workflows/release.yml on every release.
 cask "glint" do
-  version "0.1.1"
-  sha256 "5da6f622948be7635d856e15282714bc43cc0eac8c8c3a91083a2b9067d5409d"
+  version "0.1.2"
+  sha256 "936223c7f4533709760f45602d9cafd31bd6c8c3a19831f8354f49f61c879569"
 
   url "https://github.com/thevrus/glint/releases/download/v#{version}/Glint_#{version}_universal.dmg"
   name "Glint"

@@ -241,13 +241,13 @@ export function colorPicker(onInput: (hex: string) => void): Picker {
     if (/^#[0-9a-fA-F]{6}$/.test(t)) {
       hsv = rgbToHsv(hexToRgb(t));
       emit();
-      return true;
     }
-    return false;
   };
   hex.addEventListener("focus", () => hex.select());
   hex.addEventListener("input", fromHex);
-  hex.addEventListener("blur", () => { if (!fromHex()) paint(); });
+  // Every valid keystroke has already been sent. Leaving the field only tidies its text:
+  // re-sending it here would write a stale colour over a preset applied while it had focus.
+  hex.addEventListener("blur", paint);
   hex.addEventListener("keydown", (e) => e.key === "Enter" && hex.blur());
   const side = h("div", { class: "side" });
   side.append(h("label", { class: "hexrow" }, swatch, hex));

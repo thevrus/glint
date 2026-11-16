@@ -146,15 +146,28 @@ pub fn apply_preset_by_id(app: &AppHandle, id: &str) -> Res<()> {
     run(
         app,
         move |l| {
+            // Whatever the preset turns off goes dark first, so its other values never show on
+            // the way out (Cool Focus's pale blue zones flashing after Video Call). Whatever it
+            // turns on comes on last, already holding the new values.
+            if !fo {
+                l.set_on(false)?;
+            }
+            if has_back && !bo {
+                l.set_back_on(false)?;
+            }
             l.set_brightness(b)?;
             l.set_temperature(t)?;
             if has_back {
                 l.set_back_brightness(bb)?;
                 let list: Vec<(u8, [u8; 3])> = zones.iter().enumerate().map(|(i, c)| (i as u8 + 1, *c)).collect();
                 l.set_back_zones(&list)?;
+                // off again after the colours, in case committing them wakes the strip
                 l.set_back_on(bo)?;
             }
-            l.set_on(fo)
+            if fo {
+                l.set_on(true)?;
+            }
+            Ok(())
         },
         |s| {
             s.brightness = b;

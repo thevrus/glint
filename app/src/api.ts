@@ -61,6 +61,13 @@ export interface AdaptiveView {
   curve: [number, number, number][];
 }
 
+export interface UpdateView {
+  label: string;
+  enabled: boolean;
+  auto: boolean;
+  version: string;
+}
+
 let onError: (m: string) => void = () => {};
 export const setErrorHandler = (f: (m: string) => void) => (onError = f);
 

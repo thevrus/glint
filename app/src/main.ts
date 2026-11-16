@@ -1,5 +1,5 @@
 import "./style.css";
-import { call, on, setErrorHandler, throttled, type AdaptiveView, type Preset, type State } from "./api";
+import { call, on, setErrorHandler, throttled, type AdaptiveView, type Preset, type State, type UpdateView } from "./api";
 import { bigSlider, colorPicker, segmented, thinSlider, toggle, verticalSlider } from "./controls";
 import { createAdaptive } from "./adaptive-ui";
 import { css, kelvinGradient, kelvinRgb, mix, hexToRgb, type RGB } from "./color";
@@ -280,6 +280,18 @@ function paintManage() {
       h("button", { type: "button", class: "btn small danger", "aria-label": `Delete ${p.name}`, onClick: () => void call("delete_preset", { id: p.id }) }, icon("trash", 16))));
   }
 }
+// The same update item as the menu bar icon, for anyone who looks for it here first.
+const updateName = h("span", { text: "Glint" });
+const updateBtn = h("button", { type: "button", class: "btn small", text: "Check for Updates…", onClick: () => void call("update_click") }) as HTMLButtonElement;
+// not clickable until the real state arrives: a click could otherwise start an install unlabelled
+updateBtn.disabled = true;
+const updateAuto = toggle("Check for updates automatically", (on) => void call("update_set_auto", { on }));
+function renderUpdate(u: UpdateView) {
+  updateName.textContent = `Glint ${u.version}`;
+  updateBtn.textContent = u.label;
+  updateBtn.disabled = !u.enabled;
+  updateAuto.set(u.auto);
+}
 const gearSheet = h("dialog", { class: "sheet settings", tabindex: "-1" }) as HTMLDialogElement;
 // Focus lands on the sheet itself, not its first button: a Mac sheet shows no focus ring until Tab is pressed.
 const openSettings = () => { gearSheet.showModal(); gearSheet.focus(); };
@@ -287,7 +299,8 @@ gearSheet.append(
   h("div", { class: "sheet-head" }, h("h3", { text: "Settings" }), h("button", { type: "button", class: "btn primary", text: "Done", onClick: () => gearSheet.close() })),
   h("div", { class: "sheet-body" },
     h("h4", { text: "Time of Day" }), adaptive.settings,
-    h("h4", { text: "Presets" }), manageList),
+    h("h4", { text: "Presets" }), manageList,
+    h("h4", { text: "Updates" }), h("div", { class: "group" }, row(updateName, updateBtn), row("Check automatically", updateAuto.el))),
 );
 // close on a click that both starts and ends on the backdrop, so a text drag released outside does not dismiss
 let downOnBackdrop = false;
@@ -452,6 +465,7 @@ if (boot) {
     on<Preset[]>("presets", (p) => { presets = p; paintPresets(); }),
     on<string>("notice", notify),
     on<string>("back-mode", setMode),
+    on<UpdateView>("update", renderUpdate),
   ]);
   const [s0, p0, a0, sync] = await Promise.all([call<State>("get_state"), call<Preset[]>("list_presets"), call<AdaptiveView>("get_adaptive"), call<string>("get_back_mode")]);
   setMode(sync ?? "off");
@@ -460,6 +474,8 @@ if (boot) {
   // also covers anything emitted between the injected snapshot and the listeners going live
   if (a0) renderAdaptive(a0);
   if (s0) render(s0);
+  const u0 = await call<UpdateView>("get_update");
+  if (u0) renderUpdate(u0);
 })();
 
 // ---------------------------------------------------------------- native window behaviour

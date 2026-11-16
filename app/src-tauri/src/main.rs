@@ -326,7 +326,10 @@ fn main() {
             adaptive_resume,
             window_ready,
             screen::set_back_mode,
-            screen::get_back_mode
+            screen::get_back_mode,
+            updater::get_update,
+            updater::update_click,
+            updater::update_set_auto
         ])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;

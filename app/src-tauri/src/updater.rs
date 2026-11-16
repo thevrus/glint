@@ -1,11 +1,11 @@
-//! Self-update from GitHub Releases, driven from the tray menu. This is the only network
+//! Self-update from GitHub Releases, driven from the tray menu and the Settings sheet. This is the only network
 //! request the app makes: one small JSON fetch after launch and then once a day, and the
 //! download itself when the user picks "Install". Updates are verified against the public
 //! key in tauri.conf.json before they replace the app.
 use crate::device::Shared;
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Clone, PartialEq)]
@@ -20,9 +20,30 @@ enum State {
 
 static STATE: Mutex<State> = Mutex::new(State::Idle);
 
+/// What the Settings sheet shows: the same item as the tray menu, plus the running version.
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct View {
+    label: String,
+    enabled: bool,
+    auto: bool,
+    version: String,
+}
+
+fn view(app: &AppHandle) -> View {
+    let (label, enabled) = menu_item();
+    View { label, enabled, auto: auto(app), version: app.package_info().version.to_string() }
+}
+
+/// Something the tray item or the Settings sheet shows has changed.
+fn announce(app: &AppHandle) {
+    let _ = app.emit("update", view(app));
+    crate::tray::refresh(app);
+}
+
 fn set(app: &AppHandle, s: State) {
     *STATE.lock().unwrap() = s;
-    crate::tray::refresh(app);
+    announce(app);
 }
 
 /// Label and enabled flag for the tray item.
@@ -41,14 +62,33 @@ pub fn auto(app: &AppHandle) -> bool {
     !app.state::<Shared>().store.lock().unwrap().cfg.skip_update_check
 }
 
-pub fn toggle_auto(app: &AppHandle) {
+pub fn set_auto(app: &AppHandle, on: bool) {
     {
         let sh = app.state::<Shared>();
         let mut st = sh.store.lock().unwrap();
-        st.cfg.skip_update_check = !st.cfg.skip_update_check;
+        st.cfg.skip_update_check = !on;
         st.save();
     }
-    crate::tray::refresh(app);
+    announce(app);
+}
+
+pub fn toggle_auto(app: &AppHandle) {
+    set_auto(app, !auto(app));
+}
+
+#[tauri::command]
+pub fn get_update(app: AppHandle) -> View {
+    view(&app)
+}
+
+#[tauri::command]
+pub fn update_click(app: AppHandle) {
+    clicked(&app);
+}
+
+#[tauri::command]
+pub fn update_set_auto(app: AppHandle, on: bool) {
+    set_auto(&app, on);
 }
 
 /// Check, and with `install` also download, verify, replace the app and restart.
@@ -80,7 +120,7 @@ fn begin(app: &AppHandle, manual: bool) -> Option<bool> {
         *s = next;
         install
     };
-    crate::tray::refresh(app);
+    announce(app);
     Some(install)
 }
 
